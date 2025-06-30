@@ -1,1 +1,17 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+/* No custom color overrides needed, use Tailwind's palette and dark: variants */
+/* @layer utilities {
+  .bg-pink {
+    background-color: var(--color-pink, #eb6bd8);
+  }
+}
+
+@layer base {
+  :root {
+    --color-pink: #eb6bd8;
+  }
+  .dark {
+    --color-pink: #8e0d7a;
+  }
+} */
