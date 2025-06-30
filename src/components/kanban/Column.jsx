@@ -3,8 +3,9 @@ import TaskCard from "./TaskCard";
 import { Draggable } from "@hello-pangea/dnd";
 import { useKanbanStore } from "../../store/kanbanStore";
 
-const Column = ({ title, columnId }) => {
+const Column = ({ title, columnId, onCardClick }) => {
   const tasks = useKanbanStore((s) => s.tasks[columnId] || []);
+  const editTaskTitle = useKanbanStore((s) => s.editTaskTitle);
 
   return (
     <div className="bg-gray-100 dark:bg-gray-800 rounded p-2 sm:p-4 min-w-[200px] sm:min-w-[250px] text-gray-900 dark:text-gray-100 transition border border-gray-200 dark:border-gray-700 flex-1 max-w-full">
@@ -25,9 +26,16 @@ const Column = ({ title, columnId }) => {
                 {...provided.dragHandleProps}
               >
                 <TaskCard
+                  id={task.id}
                   title={task.title}
                   priority={task.priority}
                   estimate={task.estimate}
+                  assignee={task.assignee}
+                  dueDate={task.dueDate}
+                  onClick={() => onCardClick && onCardClick(task)}
+                  onTitleEdit={(newTitle) =>
+                    editTaskTitle(task.id, columnId, newTitle)
+                  }
                 />
               </div>
             )}

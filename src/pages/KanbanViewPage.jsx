@@ -1,19 +1,54 @@
-import React from "react";
+import React, { useState } from "react";
 import KanbanView from "../components/KanbanView";
 import Sidebar from "../components/common/Sidebar";
 import Header from "../components/common/Header";
 
 function KanbanViewPage() {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   return (
-   <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900 transition">
-    <Header />
-    <div className="flex flex-1">
-      <Sidebar />
-      <main className="flex-1 p-4 bg-gray-50 dark:bg-gray-900 transition">
-        <KanbanView />
-      </main>
+    <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900 transition">
+      <Header onSidebarOpen={() => setSidebarOpen(true)} />
+      <div className="flex-1 w-full flex justify-center">
+        <div className="flex w-full  mx-auto overflow-hidden">
+          {/* Sidebar: hidden on mobile, visible on md+ */}
+          <div className="hidden md:block flex-shrink-0 w-52">
+            <Sidebar />
+          </div>
+          {/* Sidebar Drawer for mobile */}
+          {sidebarOpen && (
+            <div className="fixed inset-0 z-40 flex md:hidden">
+              <div
+                className="fixed inset-0 bg-gray-500 bg-opacity-30"
+                onClick={() => setSidebarOpen(false)}
+              />
+              <div className="relative w-52 max-w-full h-full bg-white dark:bg-gray-800 shadow-lg z-50">
+                <Sidebar />
+                <button
+                  className="absolute top-2 right-2 p-2 rounded bg-gray-200 dark:bg-gray-700"
+                  onClick={() => setSidebarOpen(false)}
+                  aria-label="Close sidebar"
+                >
+                  <svg
+                    width="20"
+                    height="20"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path d="M6 6l8 8M6 14L14 6" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
+          {/* Main content */}
+          <main className="flex-1 min-w-0">
+            <KanbanView />
+          </main>
+        </div>
+      </div>
     </div>
-  </div>
   );
 }
 

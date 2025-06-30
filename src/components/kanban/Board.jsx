@@ -6,7 +6,6 @@ import TaskDetailModal from "../common/TaskDetailModal";
 
 const Board = () => {
   const columns = useKanbanStore((s) => s.columns);
-  const tasks = useKanbanStore((s) => s.tasks);
   const moveTask = useKanbanStore((s) => s.moveTask);
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -28,38 +27,46 @@ const Board = () => {
       destination.index
     );
 
-    // Log the updated state after moving the card
     setTimeout(() => {
       const updatedTasks = useKanbanStore.getState().tasks;
       console.log("Updated tasks state:", updatedTasks);
     }, 0);
+  };
 
-    // Show modal only if moved to a different column
-    if (source.droppableId !== destination.droppableId) {
-      const task = tasks[source.droppableId].find((t) => t.id === draggableId);
+  // Handler to open modal with task data, always resets state
+  const handleCardClick = (task) => {
+    setModalOpen(false);
+    setModalTask(null);
+    setTimeout(() => {
       setModalTask(task);
       setModalOpen(true);
-    }
+    }, 0);
   };
 
   return (
     <>
       <DragDropContext onDragEnd={onDragEnd}>
-        <div className="flex flex-wrap  gap-6 sm:gap-4 p-2 sm:p-4 overflow-x-auto bg-gray-900 transition h-[100vh]">
-          {columns.map((col) => (
-            <Droppable droppableId={col.id} key={col.id}>
-              {(provided) => (
-                <div
-                  ref={provided.innerRef}
-                  {...provided.droppableProps}
-                  className="w-full sm:w-auto"
-                >
-                  <Column title={col.title} columnId={col.id} />
-                  {provided.placeholder}
-                </div>
-              )}
-            </Droppable>
-          ))}
+        <div className="container mx-auto min-h-0 py-3 px-2 sm:px-4">
+          <div className="flex flex-nowrap gap-6 sm:gap-4 p-2 sm:p-4 w-full h-[100vh] overflow-x-auto bg-white dark:bg-gray-900 transition">
+            {columns.map((col) => (
+              <Droppable droppableId={col.id} key={col.id}>
+                {(provided) => (
+                  <div
+                    ref={provided.innerRef}
+                    {...provided.droppableProps}
+                    className="w-full sm:w-auto"
+                  >
+                    <Column
+                      title={col.title}
+                      columnId={col.id}
+                      onCardClick={handleCardClick}
+                    />
+                    {provided.placeholder}
+                  </div>
+                )}
+              </Droppable>
+            ))}
+          </div>
         </div>
       </DragDropContext>
       <TaskDetailModal
