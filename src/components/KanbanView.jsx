@@ -19,7 +19,7 @@ function KanbanView() {
       </div>
       */}
       {/* Responsive board container */}
-      <div className="flex-1 w-full mx-auto px-2 sm:px-0  py-2 sm:py-4 overflow-x-auto  dark:bg-gray-900">
+      <div className="flex-1 w-full mx-auto px-2 sm:px-0  py-2 sm:py-4 overflow-x-auto  dark:bg-gray-900 ">
         <Board />
       </div>
       {/* 

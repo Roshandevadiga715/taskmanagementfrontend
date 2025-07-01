@@ -69,10 +69,15 @@ const initialTasks = {
   ],
 };
 
-export const useKanbanStore = create((set) => ({
+function getNowISO() {
+  return new Date().toISOString();
+}
+
+export const useKanbanStore = create((set, get) => ({
   columns: initialColumns,
   tasks: initialTasks,
   statusOptions,
+  comments: {}, // { [taskId]: [{ id, text, user, timestamp }] }
   moveTask: (taskId, sourceCol, destCol, destIdx) =>
     set((state) => {
       if (sourceCol === destCol) {
@@ -183,4 +188,67 @@ export const useKanbanStore = create((set) => ({
     }
     return null;
   },
+  addTask: (columnId, taskData) =>
+    set((state) => {
+      const newId = (
+        Math.max(
+          0,
+          ...Object.values(state.tasks)
+            .flat()
+            .map((t) => parseInt(t.id, 10) || 0)
+        ) + 1
+      ).toString();
+      const newTask = {
+        id: newId,
+        title: taskData.title || "Untitled",
+        priority: taskData.priority || "Medium",
+        estimate: taskData.estimate || "",
+        status: columnId,
+        ...taskData,
+      };
+      return {
+        tasks: {
+          ...state.tasks,
+          [columnId]: [...(state.tasks[columnId] || []), newTask],
+        },
+      };
+    }),
+  addComment: (taskId, text, user = "User") =>
+    set((state) => {
+      const prev = state.comments[taskId] || [];
+      const newComment = {
+        id: Date.now().toString(),
+        text,
+        user,
+        timestamp: getNowISO(),
+      };
+      return {
+        comments: {
+          ...state.comments,
+          [taskId]: [...prev, newComment],
+        },
+      };
+    }),
+  editComment: (taskId, commentId, newText) =>
+    set((state) => {
+      const prev = state.comments[taskId] || [];
+      return {
+        comments: {
+          ...state.comments,
+          [taskId]: prev.map((c) =>
+            c.id === commentId ? { ...c, text: newText, edited: true } : c
+          ),
+        },
+      };
+    }),
+  deleteComment: (taskId, commentId) =>
+    set((state) => {
+      const prev = state.comments[taskId] || [];
+      return {
+        comments: {
+          ...state.comments,
+          [taskId]: prev.filter((c) => c.id !== commentId),
+        },
+      };
+    }),
 }));

@@ -47,7 +47,7 @@ const Board = () => {
     <>
       <DragDropContext onDragEnd={onDragEnd}>
         <div className="container mx-auto min-h-0 py-3 px-2 sm:px-4">
-          <div className="flex flex-nowrap gap-6 sm:gap-4 p-2 sm:p-4 w-full h-[100vh] overflow-x-auto bg-white dark:bg-gray-900 transition">
+          <div className="flex flex-nowrap gap-6 sm:gap-4 p-2 sm:p-4 w-full h-full overflow-x-auto bg-white dark:bg-gray-900 transition">
             {columns.map((col) => (
               <Droppable droppableId={col.id} key={col.id}>
                 {(provided) => (
