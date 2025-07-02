@@ -1,0 +1,84 @@
+.antdDropdownFix :global(.ant-select-dropdown),
+.antdDropdownFix :global(.ant-dropdown),
+.antdDropdownFix :global(.ant-select-dropdown),
+.antdDropdownFix :global(.ant-select-dropdown-menu),
+.antdDropdownFix :global(.ant-dropdown-menu) {
+  z-index: 9999 !important;
+}
+
+.antdDropdownFix :global(.ant-select-selector) {
+  min-height: 32px;
+  border-radius: 6px;
+  font-size: 14px;
+  background: #fff;
+  color: #222;
+  border: 1px solid #e5e7eb;
+}
+
+.dark .antdDropdownFix :global(.ant-select-selector),
+.dark .antdDropdownFix :global(.ant-select-single .ant-select-selector) {
+  background: #1f2937 !important; /* dark:bg-gray-800 */
+  color: #f3f4f6 !important;      /* dark:text-gray-100 */
+  border: 1px solid #374151 !important; /* dark:border-gray-700 */
+}
+
+.antdDropdownFix :global(.ant-select-dropdown),
+.antdDropdownFix :global(.ant-dropdown) {
+  border-radius: 8px;
+  box-shadow: 0 4px 24px 0 rgba(0,0,0,0.10);
+  background: #fff;
+  color: #222;
+}
+
+.dark .antdDropdownFix :global(.ant-select-dropdown),
+.dark .antdDropdownFix :global(.ant-dropdown),
+.dark .antdDropdownFix :global(.ant-select-dropdown-menu),
+.dark .antdDropdownFix :global(.ant-dropdown-menu) {
+  background: #1f2937 !important; /* dark:bg-gray-800 */
+  color: #f3f4f6 !important;      /* dark:text-gray-100 */
+  border: 1px solid #374151 !important; /* dark:border-gray-700 */
+}
+
+/* Ensure dropdown options have correct text color in dark mode */
+.dark .antdDropdownFix :global(.ant-select-item-option),
+.dark .antdDropdownFix :global(.ant-dropdown-menu-item) {
+  color: #f3f4f6 !important;
+}
+
+.antdDropdownFix :global(.ant-select-item-option-selected) {
+  background: #e0e7ff !important;
+  color: #1d4ed8 !important;
+}
+
+.dark .antdDropdownFix :global(.ant-select-item-option-selected) {
+  background: #1e40af !important; /* dark:bg-blue-900 */
+  color: #93c5fd !important;      /* dark:text-blue-300 */
+}
+
+.antdDropdownFix :global(.ant-select-item-option-active) {
+  background: #f3f4f6 !important;
+}
+
+.dark .antdDropdownFix :global(.ant-select-item-option-active) {
+  background: #374151 !important; /* dark:bg-gray-700 */
+}
+
+.antdDropdownFix :global(.ant-select-item-option-content) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.antdDropdownFix :global(.ant-btn) {
+  background: #2563eb !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 6px !important;
+  font-weight: 500;
+  font-size: 15px;
+  box-shadow: 0 2px 8px 0 rgba(37,99,235,0.08);
+}
+
+.antdDropdownFix :global(.ant-btn:hover) {
+  background: #1d4ed8 !important;
+}

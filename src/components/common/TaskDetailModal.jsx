@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import Modal from "../common/Modal";
-import { FaPlay, FaPause, FaStop, FaPlus, FaChevronDown, FaPaperclip as FaAttach, FaTasks, FaPaperclip } from "react-icons/fa";
+import { FaPlay, FaPause, FaStop, FaPlus, FaPaperclip as FaAttach, FaTasks, FaPaperclip } from "react-icons/fa";
 import { useKanbanStore, modalStatusOptions, statusToColumn, columnToStatus, priorities } from "../../store/kanbanStore";
 import ReactMarkdown from "react-markdown";
+import { Select, Dropdown } from "antd";
+import styles from "./TaskDetailModal.module.css";
 
 // Priority badge color mapping for UI
 const priorityColors = {
@@ -229,70 +231,80 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode }) => {
             <div className="font-semibold text-2xl text-gray-900 dark:text-gray-100">
               {localTask?.title || (mode === "update" ? "Update Task" : "Create New Task")}
             </div>
-            {/* Status Dropdown moved here */}
-            <div className="relative">
-              <button
-                className={`px-2 py-1 rounded font-semibold text-xs flex items-center gap-1 ${currentStatus.color} border`}
-                onClick={() => setStatusDropdown((v) => !v)}
-                type="button"
-              >
-                {currentStatus.label}
-                <svg className="ml-1 w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
-              {statusDropdown && (
-                <div className="absolute right-0 mt-1 w-36 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow z-20">
-                  {modalStatusOptions.map((opt) => (
-                    <button
-                      key={opt.value}
-                      className={`w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-semibold ${opt.color} hover:bg-gray-100 dark:hover:bg-gray-700`}
-                      onClick={() => handleStatusChange(opt.value)}
-                      type="button"
+            {/* Status Dropdown - AntD with custom option rendering for exact design */}
+            <div className={styles.antdDropdownFix} style={{ width: 144 }}>
+              <Select
+                value={currentStatus.value}
+                style={{ width: 144, height: 32, fontSize: 12, borderRadius: 6 }}
+                onChange={handleStatusChange}
+                dropdownClassName={styles.antdDropdownFix}
+                options={modalStatusOptions.map(opt => ({
+                  value: opt.value,
+                  label: (
+                    <span
+                      className={`px-2 py-1 rounded font-semibold text-xs flex items-center gap-1`}
+                      style={{
+                        display: 'inline-flex',
+                        width: '100%',
+                        color:
+                          opt.color?.includes('red') ? '#dc2626' :
+                          opt.color?.includes('yellow') ? '#ca8a04' :
+                          opt.color?.includes('cyan') ? '#0e7490' :
+                          opt.color?.includes('blue') ? '#2563eb' :
+                          opt.color?.includes('green') ? '#059669' :
+                          opt.color?.includes('gray') ? '#6b7280' :
+                          undefined
+                      }}
                     >
                       {opt.label}
-                    </button>
-                  ))}
-                </div>
-              )}
+                    </span>
+                  )
+                }))}
+                getPopupContainer={trigger => trigger.parentNode}
+                size="middle"
+                bordered={true}
+              />
             </div>
           </div>
           <div className="flex items-center justify-between mb-4">
             {/* Add Button with Dropdown */}
             <div className="flex items-center gap-2">
-              <div className="relative">
+              <Dropdown
+                menu={{
+                  items: [
+                    {
+                      key: 'attachment',
+                      label: (
+                        <span className="flex items-center gap-2" onClick={() => handleDropdown("attachment")}> <FaAttach /> Attachment </span>
+                      ),
+                    },
+                    {
+                      key: 'subtask',
+                      label: (
+                        <span className="flex items-center gap-2" onClick={() => handleDropdown("subtask")}> <FaTasks /> Subtask </span>
+                      ),
+                    },
+                  ],
+                }}
+                trigger={["click"]}
+                placement="bottomLeft"
+                overlayClassName={styles.antdDropdownFix}
+              >
                 <button
                   className="px-3 py-1 rounded bg-blue-600 text-white flex items-center gap-2 text-sm font-medium shadow"
-                  onClick={() => setShowAddDropdown((v) => !v)}
                   type="button"
                 >
-                  <FaPlus /> Add <FaChevronDown className="ml-1" />
+                  <FaPlus /> Add <svg className="ml-1 w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" /></svg>
                 </button>
-                {showAddDropdown && (
-                  <div className="absolute z-10 mt-2 w-44 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded shadow-lg">
-                    <button
-                      className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-left text-gray-900 dark:text-gray-100"
-                      onClick={() => handleDropdown("attachment")}
-                    >
-                      <FaAttach /> Attachment
-                    </button>
-                    <button
-                      className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-left text-gray-900 dark:text-gray-100"
-                      onClick={() => handleDropdown("subtask")}
-                    >
-                      <FaTasks /> Subtask
-                    </button>
-                  </div>
-                )}
-                {/* Hidden file input for attachment */}
-                <input
-                  id="attachment-input"
-                  type="file"
-                  multiple
-                  className="hidden"
-                  onChange={handleAttachment}
-                />
-              </div>
+              </Dropdown>
+              {/* Hidden file input for attachment */}
+              <input
+                id="attachment-input"
+                type="file"
+                multiple
+                className="hidden"
+                onChange={handleAttachment}
+              />
             </div>
             {/* Remove Status Dropdown from here */}
           </div>
@@ -614,80 +626,33 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode }) => {
           {/* Priority */}
           <div className="mb-3 flex items-center">
             <span className="w-24 text-gray-700 dark:text-gray-300">Priority</span>
-            <div className="relative flex-1">
-              <button
-                className="w-full flex items-center justify-between px-2 py-1 rounded bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 appearance-none"
-                style={{
-                  color:
-                    localTask?.priority === "High"
-                      ? "#dc2626"
-                      : localTask?.priority === "Medium"
-                      ? "#ca8a04"
-                      : localTask?.priority === "Low"
-                      ? "#0e7490"
-                      : undefined,
-                  backgroundColor:
-                    localTask?.priority === "High"
-                      ? "#fee2e2"
-                      : localTask?.priority === "Medium"
-                      ? "#fef9c3"
-                      : localTask?.priority === "Low"
-                      ? "#cffafe"
-                      : undefined,
-                  borderColor:
-                    localTask?.priority === "High"
-                      ? "#fecaca"
-                      : localTask?.priority === "Medium"
-                      ? "#fef08a"
-                      : localTask?.priority === "Low"
-                      ? "#a5f3fc"
-                      : undefined,
-                }}
-                onClick={() => setShowPriorityDropdown((v) => !v)}
-                type="button"
-              >
-                <span>
-                  {localTask?.priority || "High"}
-                </span>
-                <svg className="ml-2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
-              {showPriorityDropdown && (
-                <div className="absolute z-10 mt-2 w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded shadow-lg">
-                  {priorities.map((p) => (
-                    <button
-                      key={p}
-                      className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-left text-sm font-semibold"
+            <div className={styles.antdDropdownFix} style={{ width: '100%' }}>
+              <Select
+                value={localTask?.priority || "High"}
+                style={{ width: '100%', height: 32, fontSize: 14, borderRadius: 6 }}
+                onChange={p => localTask?.id && columnId && setTaskPriority(localTask.id, columnId, p)}
+                dropdownClassName={styles.antdDropdownFix}
+                options={priorities.map(p => ({
+                  value: p,
+                  label: (
+                    <span
+                      className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm font-semibold`}
                       style={{
-                        color:
-                          p === "High"
-                            ? "#dc2626"
-                            : p === "Medium"
-                            ? "#ca8a04"
-                            : p === "Low"
-                            ? "#0e7490"
-                            : undefined,
-                        backgroundColor:
-                          p === "High"
-                            ? "#fee2e2"
-                            : p === "Medium"
-                            ? "#fef9c3"
-                            : p === "Low"
-                            ? "#cffafe"
-                            : undefined,
+                        color: p === "High" ? "#dc2626" : p === "Medium" ? "#ca8a04" : p === "Low" ? "#0e7490" : undefined,
+                        // No background color for selected or options
+                        borderRadius: 4,
+                        display: 'inline-flex',
+                        width: '100%'
                       }}
-                      onClick={() => {
-                        if (localTask?.id && columnId) setTaskPriority(localTask.id, columnId, p);
-                        setShowPriorityDropdown(false);
-                      }}
-                      type="button"
                     >
                       {p}
-                    </button>
-                  ))}
-                </div>
-              )}
+                    </span>
+                  )
+                }))}
+                getPopupContainer={trigger => trigger.parentNode}
+                size="middle"
+                bordered={true}
+              />
             </div>
           </div>
           {/* Estimate */}
