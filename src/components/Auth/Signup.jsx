@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { EyeInvisibleOutlined, EyeOutlined } from "@ant-design/icons";
 import { useAuth } from "../../App"; // import useAuth
-import { signup as signupApi } from "../../api/auth";
+import { signup as signupApi } from "../../api/authRequest";
 
 const bgimg = ""; // Replace with your image path if available
 

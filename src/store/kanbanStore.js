@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { createTask as apiCreateTask, getAllTasks, updateTask } from "../api/taskRequest"; // <-- Add updateTask import
 
 export const modalStatusOptions = [
   { value: "backlog", label: "Backlog", color: "bg-gray-200 text-gray-700" },
@@ -42,24 +43,7 @@ const initialColumns = [
   { id: "completed", title: "Completed" },
 ];
 
-const initialTasks = {
-  backlog: [
-    { id: "1", title: "Setup Database Schema", priority: "High", estimate: "2h", status: "backlog" },
-    { id: "2", title: "Design User Interface", priority: "Medium", estimate: "4h", status: "backlog" },
-  ],
-  todo: [
-    { id: "3", title: "API Integration", priority: "High", estimate: "3h", status: "todo" },
-  ],
-  inprogress: [
-    { id: "4", title: "User Authentication", priority: "Medium", estimate: "2h", status: "inprogress" },
-  ],
-  review: [
-    { id: "5", title: "Testing Suite", priority: "Low", estimate: "1h", status: "review" },
-  ],
-  completed: [
-    { id: "6", title: "Project Initialization", priority: "Low", estimate: "1h", status: "completed" },
-  ],
-};
+const initialTasks = {}; // Always start as empty object
 
 function getNowISO() {
   return new Date().toISOString();
@@ -71,6 +55,8 @@ export const useKanbanStore = create((set, get) => ({
   statusOptions,
   comments: {}, // { [taskId]: [{ id, text, user, timestamp }] }
 
+  setTasks: (tasks) => set({ tasks }),
+
   // --- Real-time update handlers ---
   updateTaskFromSocket: (updatedTask) =>
     set((state) => {
@@ -81,21 +67,29 @@ export const useKanbanStore = create((set, get) => ({
           break;
         }
       }
-      if (!foundCol) return {};
+      if (!foundCol) return state; // Return current state instead of empty object
+      
       const colTasks = state.tasks[foundCol].map((t) =>
         t.id === updatedTask.id ? { ...t, ...updatedTask } : t
       );
-      return { tasks: { ...state.tasks, [foundCol]: colTasks } };
+      return { 
+        ...state, // Preserve other state
+        tasks: { ...state.tasks, [foundCol]: colTasks } 
+      };
     }),
 
   setTaskTimerFromSocket: (taskId, isRunning, timeSpent) =>
     set((state) => {
-      for (const col in state.tasks) {
-        state.tasks[col] = state.tasks[col].map((t) =>
+      const newTasks = { ...state.tasks };
+      for (const col in newTasks) {
+        newTasks[col] = newTasks[col].map((t) =>
           t.id === taskId ? { ...t, isRunning, timeSpent } : t
         );
       }
-      return { tasks: { ...state.tasks } };
+      return { 
+        ...state, // Preserve other state
+        tasks: newTasks 
+      };
     }),
 
   // --- Timer actions (frontend triggers, also call backend/socket) ---
@@ -104,28 +98,54 @@ export const useKanbanStore = create((set, get) => ({
       const colTasks = state.tasks[columnId]?.map((t) =>
         t.id === taskId ? { ...t, isRunning, timeSpent } : t
       );
-      return { tasks: { ...state.tasks, [columnId]: colTasks } };
+      if (!colTasks) return state; // Return current state if column doesn't exist
+      
+      return { 
+        ...state, // Preserve other state
+        tasks: { ...state.tasks, [columnId]: colTasks } 
+      };
     }),
 
   moveTask: (taskId, sourceCol, destCol, destIdx) =>
     set((state) => {
+      let updatedTask = null;
       if (sourceCol === destCol) {
-        const colTasks = Array.from(state.tasks[sourceCol]);
-        const [removed] = colTasks.splice(
-          colTasks.findIndex((t) => t.id === taskId),
-          1
-        );
+        const colTasks = Array.from(state.tasks[sourceCol] || []);
+        const taskIndex = colTasks.findIndex((t) => t.id === taskId);
+        if (taskIndex === -1) return state; // Task not found
+
+        const [removed] = colTasks.splice(taskIndex, 1);
         colTasks.splice(destIdx, 0, removed);
-        return { tasks: { ...state.tasks, [sourceCol]: colTasks } };
-      } else {
-        const sourceTasks = Array.from(state.tasks[sourceCol]);
-        const [removed] = sourceTasks.splice(
-          sourceTasks.findIndex((t) => t.id === taskId),
-          1
-        );
-        const destTasks = Array.from(state.tasks[destCol] || []);
-        destTasks.splice(destIdx, 0, removed);
+
+        updatedTask = { ...removed }; // No status change
+
+        // Optimistically update state, then call API
+        setTimeout(() => {
+          if (updatedTask) updateTask(taskId, updatedTask).catch(() => {});
+        }, 0);
+
         return {
+          ...state,
+          tasks: { ...state.tasks, [sourceCol]: colTasks }
+        };
+      } else {
+        const sourceTasks = Array.from(state.tasks[sourceCol] || []);
+        const taskIndex = sourceTasks.findIndex((t) => t.id === taskId);
+        if (taskIndex === -1) return state; // Task not found
+
+        const [removed] = sourceTasks.splice(taskIndex, 1);
+        // Update the status for backend consistency
+        updatedTask = { ...removed, status: destCol };
+        const destTasks = Array.from(state.tasks[destCol] || []);
+        destTasks.splice(destIdx, 0, updatedTask);
+
+        // Optimistically update state, then call API
+        setTimeout(() => {
+          if (updatedTask) updateTask(taskId, updatedTask).catch(() => {});
+        }, 0);
+
+        return {
+          ...state,
           tasks: {
             ...state.tasks,
             [sourceCol]: sourceTasks,
@@ -137,14 +157,21 @@ export const useKanbanStore = create((set, get) => ({
 
   editTaskTitle: (taskId, columnId, newTitle) =>
     set((state) => {
-      const tasks = { ...state.tasks };
-      const colTasks = tasks[columnId]?.map((task) =>
+      const colTasks = state.tasks[columnId]?.map((task) =>
         task.id === taskId ? { ...task, title: newTitle } : task
       );
-      if (!colTasks) return { tasks };
+      if (!colTasks) return state; // Return current state if column doesn't exist
+      
+      // Optimistically update state, then call API
+      setTimeout(() => {
+        const updatedTask = colTasks.find((task) => task.id === taskId);
+        if (updatedTask) updateTask(taskId, { ...updatedTask, taskType: updatedTask.taskType || "task" }).catch(() => {});
+      }, 0);
+      
       return {
+        ...state, // Preserve other state
         tasks: {
-          ...tasks,
+          ...state.tasks,
           [columnId]: colTasks,
         },
       };
@@ -153,16 +180,33 @@ export const useKanbanStore = create((set, get) => ({
   updateTaskStatus: (taskId, newStatus) =>
     set((state) => {
       const tasks = { ...state.tasks };
+      let taskFound = false;
+      let updatedTask = null;
+      
       for (const col in tasks) {
         const idx = tasks[col].findIndex((t) => t.id === taskId);
         if (idx !== -1) {
           const [task] = tasks[col].splice(idx, 1);
           task.status = newStatus;
           tasks[newStatus] = [...(tasks[newStatus] || []), task];
+          updatedTask = task;
+          taskFound = true;
           break;
         }
       }
-      return { tasks };
+      
+      if (taskFound && updatedTask) {
+        setTimeout(() => {
+          updateTask(taskId, updatedTask).catch(() => {});
+        }, 0);
+      }
+      
+      if (!taskFound) return state; // Task not found
+      
+      return { 
+        ...state, // Preserve other state
+        tasks 
+      };
     }),
 
   setTaskPriority: (taskId, columnId, newPriority) =>
@@ -170,7 +214,18 @@ export const useKanbanStore = create((set, get) => ({
       const colTasks = state.tasks[columnId]?.map((t) =>
         t.id === taskId ? { ...t, priority: newPriority } : t
       );
-      return { tasks: { ...state.tasks, [columnId]: colTasks } };
+      if (!colTasks) return state; // Return current state if column doesn't exist
+      
+      // Optimistically update state, then call API
+      setTimeout(() => {
+        const updatedTask = colTasks.find((task) => task.id === taskId);
+        if (updatedTask) updateTask(taskId, { ...updatedTask, taskType: updatedTask.taskType || "task" }).catch(() => {});
+      }, 0);
+      
+      return { 
+        ...state, // Preserve other state
+        tasks: { ...state.tasks, [columnId]: colTasks } 
+      };
     }),
 
   setTaskEstimate: (taskId, columnId, newEstimate) =>
@@ -178,7 +233,18 @@ export const useKanbanStore = create((set, get) => ({
       const colTasks = state.tasks[columnId]?.map((t) =>
         t.id === taskId ? { ...t, estimate: newEstimate } : t
       );
-      return { tasks: { ...state.tasks, [columnId]: colTasks } };
+      if (!colTasks) return state; // Return current state if column doesn't exist
+      
+      // Optimistically update state, then call API
+      setTimeout(() => {
+        const updatedTask = colTasks.find((task) => task.id === taskId);
+        if (updatedTask) updateTask(taskId, { ...updatedTask, taskType: updatedTask.taskType || "task" }).catch(() => {});
+      }, 0);
+      
+      return { 
+        ...state, // Preserve other state
+        tasks: { ...state.tasks, [columnId]: colTasks } 
+      };
     }),
 
   setTaskDescription: (taskId, columnId, newDescription) =>
@@ -186,7 +252,18 @@ export const useKanbanStore = create((set, get) => ({
       const colTasks = state.tasks[columnId]?.map((t) =>
         t.id === taskId ? { ...t, description: newDescription } : t
       );
-      return { tasks: { ...state.tasks, [columnId]: colTasks } };
+      if (!colTasks) return state; // Return current state if column doesn't exist
+      
+      // Optimistically update state, then call API
+      setTimeout(() => {
+        const updatedTask = colTasks.find((task) => task.id === taskId);
+        if (updatedTask) updateTask(taskId, { ...updatedTask, taskType: updatedTask.taskType || "task" }).catch(() => {});
+      }, 0);
+      
+      return { 
+        ...state, // Preserve other state
+        tasks: { ...state.tasks, [columnId]: colTasks } 
+      };
     }),
 
   setTaskAttachments: (taskId, columnId, newAttachments) =>
@@ -194,7 +271,18 @@ export const useKanbanStore = create((set, get) => ({
       const colTasks = state.tasks[columnId]?.map((t) =>
         t.id === taskId ? { ...t, attachments: newAttachments } : t
       );
-      return { tasks: { ...state.tasks, [columnId]: colTasks } };
+      if (!colTasks) return state; // Return current state if column doesn't exist
+      
+      // Optimistically update state, then call API
+      setTimeout(() => {
+        const updatedTask = colTasks.find((task) => task.id === taskId);
+        if (updatedTask) updateTask(taskId, { ...updatedTask, taskType: updatedTask.taskType || "task" }).catch(() => {});
+      }, 0);
+      
+      return { 
+        ...state, // Preserve other state
+        tasks: { ...state.tasks, [columnId]: colTasks } 
+      };
     }),
 
   setTaskSubtasks: (taskId, columnId, newSubtasks) =>
@@ -202,11 +290,22 @@ export const useKanbanStore = create((set, get) => ({
       const colTasks = state.tasks[columnId]?.map((t) =>
         t.id === taskId ? { ...t, subtasks: newSubtasks } : t
       );
-      return { tasks: { ...state.tasks, [columnId]: colTasks } };
+      if (!colTasks) return state; // Return current state if column doesn't exist
+      
+      // Optimistically update state, then call API
+      setTimeout(() => {
+        const updatedTask = colTasks.find((task) => task.id === taskId);
+        if (updatedTask) updateTask(taskId, { ...updatedTask, taskType: updatedTask.taskType || "task" }).catch(() => {});
+      }, 0);
+      
+      return { 
+        ...state, // Preserve other state
+        tasks: { ...state.tasks, [columnId]: colTasks } 
+      };
     }),
 
   getTaskById: (taskId) => {
-    const tasks = useKanbanStore.getState().tasks;
+    const tasks = get().tasks; // Use get() instead of useKanbanStore.getState()
     for (const col in tasks) {
       const found = tasks[col].find((task) => task.id === taskId);
       if (found) return found;
@@ -216,14 +315,14 @@ export const useKanbanStore = create((set, get) => ({
 
   addTask: (columnId, taskData) =>
     set((state) => {
+      const existingTasks = Object.values(state.tasks).flat();
       const newId = (
         Math.max(
           0,
-          ...Object.values(state.tasks)
-            .flat()
-            .map((t) => parseInt(t.id, 10) || 0)
+          ...existingTasks.map((t) => parseInt(t.id, 10) || 0)
         ) + 1
       ).toString();
+      
       const newTask = {
         id: newId,
         title: taskData.title || "Untitled",
@@ -232,13 +331,60 @@ export const useKanbanStore = create((set, get) => ({
         status: columnId,
         ...taskData,
       };
+      
       return {
+        ...state, // Preserve other state
         tasks: {
           ...state.tasks,
           [columnId]: [...(state.tasks[columnId] || []), newTask],
         },
       };
     }),
+
+  createTask: async (taskData, columnId = "todo") => {
+    // Determine if this is a subtask or a main task
+    const isSubtask = !!taskData.taskDataId || !!taskData.taskdataId;
+    const payload = {
+      ...taskData,
+      // Use correct key for parent id and taskType
+      taskType: isSubtask ? "subtask" : "task",
+      // Normalize parent id key for backend
+      taskDataId: taskData.taskDataId || taskData.taskdataId,
+    };
+    const tempId = `temp-${Date.now()}`;
+    const optimisticTask = { ...payload, id: tempId };
+
+    // Optimistically update tasks in the correct column
+    set((state) => ({
+      tasks: {
+        ...state.tasks,
+        [columnId]: [optimisticTask, ...(state.tasks[columnId] || [])],
+      },
+    }));
+
+    try {
+      const createdTask = await apiCreateTask(payload);
+      // Replace temp task with real task from API
+      set((state) => ({
+        tasks: {
+          ...state.tasks,
+          [columnId]: state.tasks[columnId].map((t) =>
+            t.id === tempId ? { ...createdTask, id: createdTask._id || createdTask.id } : t
+          ),
+        },
+      }));
+      return createdTask;
+    } catch (error) {
+      // On error, remove the optimistically added task
+      set((state) => ({
+        tasks: {
+          ...state.tasks,
+          [columnId]: (state.tasks[columnId] || []).filter((t) => t.id !== tempId),
+        },
+      }));
+      throw error;
+    }
+  },
 
   addComment: (taskId, text, user = "User") =>
     set((state) => {
@@ -250,6 +396,7 @@ export const useKanbanStore = create((set, get) => ({
         timestamp: getNowISO(),
       };
       return {
+        ...state, // Preserve other state
         comments: {
           ...state.comments,
           [taskId]: [...prev, newComment],
@@ -261,6 +408,7 @@ export const useKanbanStore = create((set, get) => ({
     set((state) => {
       const prev = state.comments[taskId] || [];
       return {
+        ...state, // Preserve other state
         comments: {
           ...state.comments,
           [taskId]: prev.map((c) =>
@@ -274,10 +422,42 @@ export const useKanbanStore = create((set, get) => ({
     set((state) => {
       const prev = state.comments[taskId] || [];
       return {
+        ...state, // Preserve other state
         comments: {
           ...state.comments,
           [taskId]: prev.filter((c) => c.id !== commentId),
         },
       };
     }),
+
+  fetchAndSetTasks: async () => {
+    try {
+      const data = await getAllTasks();
+      const columnsList = get().columns;
+      const tasksByColumn = {};
+      columnsList.forEach((col) => {
+        tasksByColumn[col.id] = [];
+      });
+      data.forEach((task) => {
+        let col = (task.status || "").toLowerCase().replace(/\s/g, "");
+        if (!columnsList.some((c) => c.id === col)) {
+          col = "backlog";
+        }
+        tasksByColumn[col].push({
+          ...task,
+          id: task._id || task.id,
+        });
+      });
+      set({ tasks: tasksByColumn });
+    } catch (error) {
+      // On error, initialize with empty columns
+      const columnsList = get().columns;
+      const emptyTasks = {};
+      columnsList.forEach((col) => {
+        emptyTasks[col.id] = [];
+      });
+      set({ tasks: emptyTasks });
+      throw error;
+    }
+  },
 }));

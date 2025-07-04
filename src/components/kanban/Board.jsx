@@ -1,15 +1,21 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Column from "./Column";
 import { DragDropContext, Droppable } from "@hello-pangea/dnd";
 import { useKanbanStore } from "../../store/kanbanStore";
 import TaskDetailModal from "../common/TaskDetailModal";
 
 const Board = () => {
+  // Use selector for rendering (reactive)
   const columns = useKanbanStore((s) => s.columns);
   const moveTask = useKanbanStore((s) => s.moveTask);
+  const setTasks = useKanbanStore((s) => s.setTasks);
+  const fetchAndSetTasks = useKanbanStore((s) => s.fetchAndSetTasks);
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [modalTask, setModalTask] = useState(null);
+  const [modalTaskId, setModalTaskId] = useState(null);
+  const [modalTaskType, setModalTaskType] = useState("task");
+  const [isLoading, setIsLoading] = useState(true);
+  const [modalLoading, setModalLoading] = useState(false);
 
   const onDragEnd = (result) => {
     const { source, destination, draggableId } = result;
@@ -27,21 +33,44 @@ const Board = () => {
       destination.index
     );
 
-    setTimeout(() => {
-      const updatedTasks = useKanbanStore.getState().tasks;
-      console.log("Updated tasks state:", updatedTasks);
-    }, 0);
+    // Remove the setTimeout that was causing issues
+    // The state update is now synchronous through Zustand
   };
 
-  // Handler to open modal with task data, always resets state
+  // Handler to open modal with task id/type
   const handleCardClick = (task) => {
-    setModalOpen(false);
-    setModalTask(null);
-    setTimeout(() => {
-      setModalTask(task);
-      setModalOpen(true);
-    }, 0);
+    setModalTaskId(task.id);
+    setModalTaskType("task");
+    setModalOpen(true);
   };
+
+  // Fetch tasks on component mount
+  useEffect(() => {
+    const fetchTasks = async () => {
+      try {
+        setIsLoading(true);
+        await fetchAndSetTasks();
+      } catch (error) {
+        console.error("Failed to fetch tasks:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchTasks();
+  }, []); // Only run once on mount
+
+  if (isLoading) {
+    return (
+      <div className="container mx-auto min-h-0 py-3 px-2 sm:px-4">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-lg text-gray-600 dark:text-gray-400">
+            Loading tasks...
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -72,7 +101,8 @@ const Board = () => {
       <TaskDetailModal
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
-        task={modalTask}
+        taskId={modalTaskId}
+        taskType={modalTaskType}
         mode="update"
       />
     </>
