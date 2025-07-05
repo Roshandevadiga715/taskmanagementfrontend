@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { getTaskById as apiGetTaskById } from "../../api/taskRequest";
-import Modal from "../common/Modal";
+import { getTaskById as apiGetTaskById, createTask as apiCreateTask } from "../../api/taskRequest";
+import { Modal, Breadcrumb } from "antd";
 import {
   FaPlay,
   FaPause,
@@ -18,8 +18,10 @@ import {
   priorities,
 } from "../../store/kanbanStore";
 import ReactMarkdown from "react-markdown";
-import { Select, Dropdown } from "antd";
+import "../../styles/custom-ant-modal-dark.css";
+import { Select, Dropdown, Table, Input, Form, DatePicker } from "antd";
 import styles from "./TaskDetailModal.module.css";
+import moment from "moment";
 
 // Priority badge color mapping for UI
 const priorityColors = {
@@ -77,36 +79,38 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
   const [editingCommentId, setEditingCommentId] = useState(null);
   const [editingCommentText, setEditingCommentText] = useState("");
   const [showSubtaskInput, setShowSubtaskInput] = useState(false);
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [descriptionDraft, setDescriptionDraft] = useState("");
   const intervalRef = useRef(null);
 
   // --- ACTIVITY LOG (STATIC) ---
-  const history = useMemo(
-    () => [
-      {
-        text: "changed the Status",
-        user: "roshan devadiga",
-        time: "20 hours ago",
-        from: "USER TESTING",
-        to: "IN DESIGN",
-      },
-      {
-        text: "changed the Status",
-        user: "roshan devadiga",
-        time: "20 hours ago",
-        from: "IN DESIGN",
-        to: "USER TESTING",
-      },
-      {
-        text: "changed the Status",
-        user: "roshan devadiga",
-        time: "20 hours ago",
-        from: "TO DO",
-        to: "IN DESIGN",
-      },
-      // ...add more mock history as needed
-    ],
-    []
-  );
+  // const history = useMemo(
+  //   () => [
+  //     {
+  //       text: "changed the Status",
+  //       user: "roshan devadiga",
+  //       time: "20 hours ago",
+  //       from: "USER TESTING",
+  //       to: "IN DESIGN",
+  //     },
+  //     {
+  //       text: "changed the Status",
+  //       user: "roshan devadiga",
+  //       time: "20 hours ago",
+  //       from: "IN DESIGN",
+  //       to: "USER TESTING",
+  //     },
+  //     {
+  //       text: "changed the Status",
+  //       user: "roshan devadiga",
+  //       time: "20 hours ago",
+  //       from: "TO DO",
+  //       to: "IN DESIGN",
+  //     },
+  //     // ...add more mock history as needed
+  //   ],
+  //   []
+  // );
   const worklog = useMemo(
     () => [
       { text: "Logged 2h work", user: "roshan devadiga", time: "1 hour ago" },
@@ -187,6 +191,14 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
     return `${h}:${m}:${s}`;
   };
 
+  // --- Optimistic update helpers for task fields ---
+  const optimisticUpdateTaskField = (field, value) => {
+    setLocalTask((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
   // --- HANDLERS ---
   // Reset form and timer on close
   const handleClose = () => {
@@ -194,78 +206,406 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
     stopTimer();
     onClose();
   };
-  // Update description and refresh
+
+  // --- SUBTASK NAVIGATION STATE ---
+  const [isSubTask, setIsSubTask] = useState(false);
+  const [activeSubTask, setActiveSubTask] = useState(null);
+
+  // --- LOCAL COMMENT STATE FOR SUBTASKS ---
+  const [subtaskComments, setSubtaskComments] = useState([]);
+
+  // --- DATA SOURCE: task or subtask ---
+  const displayData = isSubTask && activeSubTask ? activeSubTask : localTask;
+
+  // --- Reset subtask state on modal open/close or task change ---
+  useEffect(() => {
+    setIsSubTask(false);
+    setActiveSubTask(null);
+    setSubtaskComments([]);
+  }, [isOpen, taskId, taskType, task?.id]);
+
+  // --- Breadcrumb click handlers ---
+  const handleBreadcrumbTask = () => {
+    setIsSubTask(false);
+    setActiveSubTask(null);
+    setSubtaskComments([]);
+  };
+
+  // --- Subtask title click handler ---
+  const handleSubtaskTitleClick = (subtask) => {
+    setIsSubTask(true);
+    setActiveSubTask(subtask);
+    setSubtaskComments(subtask.comments || []);
+  };
+
+  // --- Update handlers: use displayData and update correct entity ---
   const handleDescriptionChange = (e) => {
-    if (localTask?._id && columnId) {
-      setTaskDescription(localTask._id, columnId, e.target.value);
-      setTimeout(refreshTask, 0);
+    setDescriptionDraft(e.target.value);
+  };
+
+  const handleEditDescription = () => {
+    setEditingDescription(true);
+    setDescriptionDraft(displayData?.description || "");
+  };
+
+  const handleCancelEditDescription = () => {
+    setEditingDescription(false);
+    setDescriptionDraft(displayData?.description || "");
+  };
+
+  const handleSaveEditDescription = async () => {
+    if (isSubTask && activeSubTask?._id && columnId) {
+      const updated = { ...activeSubTask, description: descriptionDraft };
+      setActiveSubTask(updated);
+      setTaskSubtasks(activeSubTask._id, columnId, [updated]);
+      await refreshTask();
+      setEditingDescription(false);
+    } else if (localTask?._id && columnId) {
+      optimisticUpdateTaskField("description", descriptionDraft);
+      await setTaskDescription(localTask._id, columnId, descriptionDraft);
+      await refreshTask();
+      setEditingDescription(false);
     }
   };
-  // Update priority and refresh
+
   const handlePriorityChange = (p) => {
-    if (localTask?._id && columnId) {
+    if (isSubTask && activeSubTask?._id && columnId) {
+      const updated = { ...activeSubTask, priority: p };
+      setActiveSubTask(updated);
+      setTaskSubtasks(activeSubTask._id, columnId, [updated]);
+      setTimeout(refreshTask, 300);
+    } else if (localTask?._id && columnId) {
+      optimisticUpdateTaskField("priority", p);
       setTaskPriority(localTask._id, columnId, p);
-      setTimeout(refreshTask, 0);
+      setTimeout(refreshTask, 300);
     }
   };
-  // Update estimate and refresh
-  const handleEstimateChange = (e) => {
-    if (localTask?._id && columnId) {
-      setTaskEstimate(localTask._id, columnId, e.target.value);
-      setTimeout(refreshTask, 0);
+
+  const handleEstimateChange = async (date, dateString) => {
+    if (isSubTask && activeSubTask?._id && columnId) {
+      const updated = { ...activeSubTask, estimate: dateString };
+      setActiveSubTask(updated);
+      setTaskSubtasks(activeSubTask._id, columnId, [updated]);
+      await refreshTask();
+    } else if (localTask?._id && columnId) {
+      optimisticUpdateTaskField("estimate", dateString);
+      await setTaskEstimate(localTask._id, columnId, dateString);
+      await refreshTask();
     }
   };
-  // Update attachments and refresh
-  const handleAttachment = (e) => {
-    if (!localTask?._id || !columnId) return;
-    const files = Array.from(e.target.files);
-    const prev = localTask.attachments || [];
-    // Add preview for images
-    const filesWithPreview = files.map((file) => {
-      if (file.type && file.type.startsWith("image/")) {
-        const preview = URL.createObjectURL(file);
-        return Object.assign(file, { preview });
-      }
-      return file;
-    });
-    setTaskAttachments(localTask._id, columnId, [...prev, ...filesWithPreview]);
-    setTimeout(refreshTask, 0);
+
+  // --- Status change handler ---
+  const handleStatusChange = (newStatus) => {
+    if (isSubTask && activeSubTask?._id && columnId && newStatus !== activeSubTask.status) {
+      const updated = { ...activeSubTask, status: newStatus };
+      setActiveSubTask(updated);
+      setTaskSubtasks(activeSubTask._id, columnId, [updated]);
+      setTimeout(refreshTask, 300);
+    } else if (localTask?._id && columnId && newStatus !== columnId) {
+      optimisticUpdateTaskField("status", newStatus);
+      moveTask(localTask._id, columnId, statusToColumn[newStatus], -1);
+      setTimeout(refreshTask, 300);
+    }
+    setStatusDropdown(false);
   };
-  // Update subtasks and refresh
-  const handleSubtaskToggle = (idx) => {
-    const updated = [...(localTask.subtasks || [])];
-    updated[idx] = { ...updated[idx], done: !updated[idx].done };
-    setTaskSubtasks(localTask._id, columnId, updated);
-    setTimeout(refreshTask, 0);
-  };
-  // Add a new subtask and refresh
-  const handleAddSubtask = async () => {
-    if (!localTask?._id || !columnId) return;
-    if (newSubtask.trim()) {
-      try {
-        // Compose subtask payload
-        const payload = {
-          title: newSubtask.trim(),
-          description: "",
-          status: localTask.status || columnId,
-          priority: "Medium",
-          estimate: "",
-          comments: [],
-          attachments: [],
-          tags: [],
-          subtask: [],
-          taskType: "subtask",
-          taskdataId: localTask?._id || localTask?._id,
-        };
-        // Create subtask via API/store
-        await createTask(payload, columnId);
-        setNewSubtask("");
+
+  // --- Comments logic: use subtaskComments for subtask, global store for task ---
+  const taskComments = isSubTask
+    ? subtaskComments
+    : localTask?._id
+    ? (comments[localTask._id] || [])
+    : [];
+
+  // --- Add comment handler (async for both task and subtask) ---
+  const handleAddComment = async () => {
+    if (isSubTask && activeSubTask && activeSubTask._id && columnId && commentInput.trim()) {
+      // Prepare new comment (without _id)
+      const newComment = {
+        text: commentInput.trim(),
+        user: "Roshan",
+        timestamp: new Date().toISOString(),
+      };
+      // Optimistically update UI
+      const updated = {
+        ...activeSubTask,
+        comments: [...(activeSubTask.comments || []), newComment],
+      };
+      setActiveSubTask(updated);
+      setSubtaskComments(updated.comments);
+      setTaskSubtasks(activeSubTask._id, columnId, [updated]);
+      setCommentInput("");
+      setTimeout(async () => {
         await refreshTask();
-      } catch (err) {
-        alert("Failed to create subtask");
-      }
+        // Fetch latest subtask from refreshed localTask
+        const refreshedTask = await apiGetTaskById(localTask._id, "task");
+        const refreshedSubtask = (refreshedTask.subtasks || []).find(
+          (s) => s._id === activeSubTask._id || s.id === activeSubTask._id
+        );
+        if (refreshedSubtask) {
+          setActiveSubTask(refreshedSubtask);
+          setSubtaskComments(refreshedSubtask.comments || []);
+        }
+      }, 300);
+    } else if (localTask?._id && commentInput.trim()) {
+      setLocalTask((prev) => ({
+        ...prev,
+        comments: [
+          ...(prev.comments || []),
+          {
+            text: commentInput.trim(),
+            user: "Roshan",
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      }));
+      await addComment(localTask._id, commentInput.trim(), "Roshan");
+      setCommentInput("");
+      setTimeout(refreshTask, 300);
     }
   };
+
+  const handleEditComment = (commentId, text) => {
+    setEditingCommentId(commentId);
+    setEditingCommentText(text);
+  };
+
+  const handleSaveEditComment = (commentId) => {
+    if (isSubTask && activeSubTask) {
+      if (editingCommentText.trim()) {
+        const updatedComments = (activeSubTask.comments || []).map((c) =>
+          c._id === commentId
+            ? { ...c, text: editingCommentText.trim(), edited: true }
+            : c
+        );
+        const updated = { ...activeSubTask, comments: updatedComments };
+        setActiveSubTask(updated);
+        setSubtaskComments(updatedComments);
+        setTaskSubtasks(activeSubTask._id, columnId, [updated]);
+        setEditingCommentId(null);
+        setEditingCommentText("");
+        setTimeout(refreshTask, 300);
+      }
+    } else if (localTask?._id && editingCommentText.trim()) {
+      setLocalTask((prev) => ({
+        ...prev,
+        comments: (prev.comments || []).map((c) =>
+          c._id === commentId
+            ? { ...c, text: editingCommentText.trim(), edited: true }
+            : c
+        ),
+      }));
+      editComment(localTask._id, commentId, editingCommentText.trim());
+      setEditingCommentId(null);
+      setEditingCommentText("");
+      setTimeout(refreshTask, 300);
+    }
+  };
+
+  const handleDeleteComment = (commentId) => {
+    if (isSubTask && activeSubTask) {
+      const updatedComments = (activeSubTask.comments || []).filter((c) => c._id !== commentId);
+      const updated = { ...activeSubTask, comments: updatedComments };
+      setActiveSubTask(updated);
+      setSubtaskComments(updatedComments);
+      setTaskSubtasks(activeSubTask._id, columnId, [updated]);
+      setTimeout(refreshTask, 300);
+    } else if (localTask?._id) {
+      setLocalTask((prev) => ({
+        ...prev,
+        comments: (prev.comments || []).filter((c) => c._id !== commentId),
+      }));
+      deleteComment(localTask._id, commentId);
+      setTimeout(refreshTask, 300);
+    }
+  };
+
+  // --- STATUS DROPDOWN LOGIC ---
+  // Find the current status for the dropdown
+  const currentStatus = useMemo(() => {
+    if (isSubTask && activeSubTask) {
+      return (
+        modalStatusOptions.find((s) => s.value === activeSubTask.status) ||
+        modalStatusOptions[0]
+      );
+    }
+    return modalStatusOptions.find((s) => s.value === columnId) || modalStatusOptions[0];
+  }, [isSubTask, activeSubTask, columnId]);
+
+  // --- COMMENT SYSTEM ---
+  // Use only _id for comment keys and edit/delete
+  // const taskComments = localTask?._id ? (comments[localTask._id] || []) : [];
+
+  // Editable Table State
+  const [editingSubtaskKey, setEditingSubtaskKey] = useState("");
+  const [form] = Form.useForm();
+
+  // Editable Table helpers
+  const isEditing = (record) => record._id === editingSubtaskKey || record.id === editingSubtaskKey;
+
+  const edit = (record) => {
+    form.setFieldsValue({
+      title: "",
+      status: "",
+      priority: "",
+      ...record,
+    });
+    setEditingSubtaskKey(record._id || record.id);
+  };
+
+  const cancel = () => {
+    setEditingSubtaskKey("");
+  };
+
+  const save = async (key) => {
+    try {
+      const row = await form.validateFields();
+      const newData = [...(localTask.subtasks || [])];
+      const index = newData.findIndex((item) => (item._id || item.id) === key);
+      if (index > -1) {
+        // Only update the edited subtask
+        const item = newData[index];
+        const updatedSubtask = { ...item, ...row };
+        // Optimistically update localTask.subtasks for instant UI feedback
+        const updatedSubtasks = [...newData];
+        updatedSubtasks[index] = updatedSubtask;
+        setLocalTask((prev) => ({
+          ...prev,
+          subtasks: updatedSubtasks,
+        }));
+        // Call setTaskSubtasks with subtask id and array with only the updated subtask
+        setTaskSubtasks(updatedSubtask._id || updatedSubtask.id, columnId, [updatedSubtask]);
+        setEditingSubtaskKey("");
+        // Delay refresh to allow optimistic UI to show instantly
+        setTimeout(refreshTask, 300);
+      }
+    } catch (errInfo) {
+      // Validation failed
+    }
+  };
+
+  // AntD Table columns for editable subtasks
+  const subtaskColumns = [
+    {
+      title: "Task ID",
+      dataIndex: "taskId",
+      key: "taskId",
+      width: 100,
+      render: (text) => <span>{text}</span>,
+    },
+    {
+      title: "Title",
+      dataIndex: "title",
+      key: "title",
+      editable: true,
+      width: 180,
+      render: (text, record) => {
+        return isEditing(record) ? (
+          <Form.Item
+            name="title"
+            style={{ margin: 0 }}
+            rules={[{ required: true, message: "Title is required." }]}
+          >
+            <Input size="small" />
+          </Form.Item>
+        ) : (
+          <span
+            className="text-blue-600 underline cursor-pointer"
+            onClick={() => handleSubtaskTitleClick(record)}
+          >
+            {text}
+          </span>
+        );
+      },
+    },
+    {
+      title: "Status",
+      dataIndex: "status",
+      key: "status",
+      editable: true,
+      width: 120,
+      render: (text, record) => {
+        return isEditing(record) ? (
+          <Form.Item
+            name="status"
+            style={{ margin: 0 }}
+            rules={[{ required: true, message: "Status is required." }]}
+          >
+            <Select
+              size="small"
+              options={modalStatusOptions.map((opt) => ({
+                value: opt.value,
+                label: opt.label,
+              }))}
+            />
+          </Form.Item>
+        ) : (
+          <span className="inline-block px-2 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs">
+            {text}
+          </span>
+        );
+      },
+    },
+    {
+      title: "Priority",
+      dataIndex: "priority",
+      key: "priority",
+      editable: true,
+      width: 120,
+      render: (text, record) => {
+        return isEditing(record) ? (
+          <Form.Item
+            name="priority"
+            style={{ margin: 0 }}
+            rules={[{ required: true, message: "Priority is required." }]}
+          >
+            <Select
+              size="small"
+              options={priorities.map((p) => ({
+                value: p,
+                label: p,
+              }))}
+            />
+          </Form.Item>
+        ) : (
+          <span className={`inline-block px-2 py-0.5 rounded font-semibold text-xs ${
+            text === "High"
+              ? "bg-red-100 text-red-600 border border-red-200"
+              : text === "Medium"
+              ? "bg-yellow-100 text-yellow-700 border border-yellow-200"
+              : text === "Low"
+              ? "bg-cyan-100 text-cyan-700 border border-cyan-200"
+              : ""
+          }`}>
+            {text}
+          </span>
+        );
+      },
+    },
+    {
+      title: "Action",
+      key: "action",
+      width: 90,
+      render: (_, record) => {
+        const editable = isEditing(record);
+        return editable ? (
+          <span>
+            <a
+              onClick={() => save(record._id || record.id)}
+              style={{ marginRight: 8 }}
+            >
+              Save
+            </a>
+            <a onClick={cancel}>Cancel</a>
+          </span>
+        ) : (
+          <a disabled={editingSubtaskKey !== ""} onClick={() => edit(record)}>
+            Edit
+          </a>
+        );
+      },
+    },
+  ];
+
   // Handle dropdown actions (add attachment/subtask)
   const handleDropdown = (action) => {
     setShowAddDropdown(false);
@@ -277,78 +617,124 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
     }
   };
 
-  // --- STATUS DROPDOWN LOGIC ---
-  // Find the current status for the dropdown
-  const currentStatus = useMemo(
-    () =>
-      modalStatusOptions.find((s) => s.value === columnId) ||
-      modalStatusOptions[0],
-    [columnId]
-  );
-  // Move task to a new column when status changes
-  const handleStatusChange = (newStatus) => {
-    if (localTask?._id && columnId && newStatus !== columnId) {
-      moveTask(localTask._id, columnId, statusToColumn[newStatus], -1);
-      setTimeout(refreshTask, 0);
-    }
-    setStatusDropdown(false);
+  // Handle file attachment
+  const handleAttachment = (e) => {
+    if (!localTask?._id || !columnId) return;
+    const files = Array.from(e.target.files);
+    const prev = localTask.attachments || [];
+    // Remove preview logic, just use files as is
+    const filesToAdd = files;
+    // Optimistically update localTask.attachments for UI
+    setLocalTask((prevTask) => ({
+      ...prevTask,
+      attachments: [...(prevTask.attachments || []), ...filesToAdd],
+    }));
+    setTaskAttachments(localTask._id, columnId, [...prev, ...filesToAdd]);
+    // Reset input value so same file can be uploaded again if needed
+    e.target.value = "";
   };
 
-  // --- COMMENT SYSTEM ---
-  const taskComments = localTask?._id ? comments[localTask?._id] || [] : [];
+  // Add a new subtask to the task using the create API, then re-fetch task
+  const handleAddSubtask = async () => {
+    if (!localTask?._id || !columnId) return;
+    if (!newSubtask.trim()) return;
 
-  // Add comment to task
-  const handleAddComment = () => {
-    if (localTask?._id && commentInput.trim()) {
-      addComment(localTask?._id, commentInput.trim(), "Roshan");
-      setCommentInput("");
-      setTimeout(refreshTask, 0);
-    }
-  };
-  // Edit comment
-  const handleEditComment = (commentId, text) => {
-    setEditingCommentId(commentId);
-    setEditingCommentText(text);
-  };
-  // Save edited comment
-  const handleSaveEditComment = (commentId) => {
-    if (localTask?._id && editingCommentText.trim()) {
-      editComment(localTask?._id, commentId, editingCommentText.trim());
-      setEditingCommentId(null);
-      setEditingCommentText("");
-      setTimeout(refreshTask, 0);
-    }
-  };
-  // Delete comment
-  const handleDeleteComment = (commentId) => {
-    if (localTask?._id) {
-      deleteComment(localTask?._id, commentId);
-      setTimeout(refreshTask, 0);
+    // Compose the payload for subtask creation (backend expects taskdataId as parent _id)
+    const payload = {
+      title: newSubtask.trim(),
+      description: '',
+      status: localTask.status || columnId,
+      priority: 'Medium',
+      estimate: '',
+      comments: [],
+      attachments: [],
+      tags: [],
+      subtasks: [],
+      taskType: 'subtask',
+      taskdataId: localTask._id, // <-- correct key
+    };
+
+    try {
+      await apiCreateTask(payload);
+      setNewSubtask("");
+      setShowSubtaskInput(false);
+      // Optionally, re-fetch the task to update subtasks
+      await refreshTask();
+    } catch (err) {
+      alert("Failed to create subtask");
     }
   };
 
   // --- RENDER MODAL UI ---
   return (
-    <Modal isOpen={isOpen} onClose={handleClose}>
+    <Modal
+      open={isOpen}
+      onCancel={onClose}
+      footer={null}
+      width="90vw"
+      centered
+      destroyOnClose
+      bodyStyle={{
+        padding: 0,
+        borderRadius: 12,
+        overflow: "hidden",
+        background: "transparent",
+        minHeight: 0,
+        maxHeight: "80vh", // reduced from 90vh
+        height: "auto",
+        display: "flex",
+        flexDirection: "column",
+      }}
+      style={{
+        maxWidth: "98vw",
+        width: "98vw",
+        top: 16,
+        margin: 0,
+        padding: 0,
+      }}
+      className={`custom-task-modal`}
+    >
+       <div className="absolute left-8 top-4 z-20 bg-white dark:bg-gray-800">
+          <Breadcrumb>
+            <Breadcrumb.Item>
+              <span
+                className="text-gray-900 dark:text-white"
+                style={{ cursor: isSubTask ? "pointer" : "default", fontWeight: isSubTask ? 600 : 700 }}
+                onClick={isSubTask ? handleBreadcrumbTask : undefined}
+              >
+                Task
+              </span>
+            </Breadcrumb.Item>
+            {isSubTask && activeSubTask && (
+              <Breadcrumb.Item>
+                <span className="text-gray-900 dark:text-white" style={{ fontWeight: 700 }}>
+                  {activeSubTask.title}
+                </span>
+              </Breadcrumb.Item>
+            )}
+          </Breadcrumb>
+        </div>
       <div
-        className="relative p-6 min-w-0 w-full max-w-[1200px] lg:max-w-[1400px] xl:max-w-[1600px] mx-auto flex flex-col md:flex-row gap-8 dark:border-gray-700 text-gray-900 dark:text-gray-100"
+        className={`${styles.modalParent} relative p-2 sm:p-4 md:p-6 min-w-0 w-full flex flex-col md:flex-row gap-4 md:gap-8 dark:border-gray-700 text-gray-900 dark:text-gray-100`}
         style={{
-          maxHeight: "565px",
-          minHeight: "400px",
-          minWidth: "0",
-          height: "565px",
+          minHeight: 0,
+          maxHeight: "80vh", // reduced from 90vh
+          height: "auto",
           boxSizing: "border-box",
           overflow: "visible",
           position: "relative",
+          background: "inherit",
         }}
       >
+        {/* --- BREADCRUMB --- */}
+       
         {/* Spacer for close button */}
         <div style={{ height: 44, minHeight: 44, width: "100%", position: "absolute", top: 0, left: 0, zIndex: 1, pointerEvents: "none" }} />
         {/* ...existing code for modal content... */}
         <div
           className="flex-1 min-w-0"
           style={{
-            maxHeight: "100%",
+            maxHeight: "calc(80vh - 44px)", // reduced from 90vh
             overflowY: "auto",
             display: "flex",
             flexDirection: "column",
@@ -358,11 +744,11 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
           {/* Modal Title */}
           <div className="flex items-center justify-between mb-2">
             <div className="font-semibold text-2xl text-gray-900 dark:text-gray-100">
-              {localTask?.title ||
+              {displayData?.title ||
                 (mode === "update" ? "Update Task" : "Create New Task")}
             </div>
             {/* Status Dropdown - AntD with custom option rendering for exact design */}
-            <div className={styles.antdDropdownFix} style={{ width: 144 }}>
+            <div className={styles.antdDropdownFix} style={{ width: 144, marginRight: 10 }}>
               <Select
                 value={currentStatus.value}
                 style={{
@@ -409,67 +795,71 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
           <div className="flex items-center justify-between mb-4">
             {/* Add Button with Dropdown */}
             <div className="flex items-center gap-2">
-              <Dropdown
-                menu={{
-                  items: [
-                    {
-                      key: "attachment",
-                      label: (
-                        <span
-                          className="flex items-center gap-2"
-                          onClick={() => handleDropdown("attachment")}
-                        >
-                          {" "}
-                          <FaAttach /> Attachment{" "}
-                        </span>
-                      ),
-                    },
-                    {
-                      key: "subtask",
-                      label: (
-                        <span
-                          className="flex items-center gap-2"
-                          onClick={() => handleDropdown("subtask")}
-                        >
-                          {" "}
-                          <FaTasks /> Subtask{" "}
-                        </span>
-                      ),
-                    },
-                  ],
-                }}
-                trigger={["click"]}
-                placement="bottomLeft"
-                overlayClassName={styles.antdDropdownFix}
-              >
-                <button
-                  className="px-3 py-1 rounded bg-blue-600 text-white flex items-center gap-2 text-sm font-medium shadow"
-                  type="button"
-                >
-                  <FaPlus /> Add{" "}
-                  <svg
-                    className="ml-1 w-3 h-3"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    viewBox="0 0 24 24"
+              {!isSubTask && (
+                <>
+                  <Dropdown
+                    menu={{
+                      items: [
+                        {
+                          key: "attachment",
+                          label: (
+                            <span
+                              className="flex items-center gap-2"
+                              onClick={() => handleDropdown("attachment")}
+                            >
+                              {" "}
+                              <FaAttach /> Attachment{" "}
+                            </span>
+                          ),
+                        },
+                        {
+                          key: "subtask",
+                          label: (
+                            <span
+                              className="flex items-center gap-2"
+                              onClick={() => handleDropdown("subtask")}
+                            >
+                              {" "}
+                              <FaTasks /> Subtask{" "}
+                            </span>
+                          ),
+                        },
+                      ],
+                    }}
+                    trigger={["click"]}
+                    placement="bottomLeft"
+                    overlayClassName={styles.antdDropdownFix}
                   >
-                    <path
-                      d="M6 9l6 6 6-6"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </button>
-              </Dropdown>
-              {/* Hidden file input for attachment */}
-              <input
-                id="attachment-input"
-                type="file"
-                multiple
-                className="hidden"
-                onChange={handleAttachment}
-              />
+                    <button
+                      className="px-3 py-1 rounded bg-blue-600 text-white flex items-center gap-2 text-sm font-medium shadow"
+                      type="button"
+                    >
+                      <FaPlus /> Add{" "}
+                      <svg
+                        className="ml-1 w-3 h-3"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          d="M6 9l6 6 6-6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </button>
+                  </Dropdown>
+                  {/* Hidden file input for attachment */}
+                  <input
+                    id="attachment-input"
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={handleAttachment}
+                  />
+                </>
+              )}
             </div>
             {/* Remove Status Dropdown from here */}
           </div>
@@ -479,23 +869,56 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
               Description
             </div>
             <div className="relative">
-              <textarea
-                className="w-full px-0 py-1 bg-transparent border-none outline-none resize-none text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 text-[16px] font-normal"
-                placeholder="Add a description..."
-                rows={1}
-                value={localTask?.description || ""}
-                onChange={handleDescriptionChange}
-                style={{
-                  minHeight: "28px",
-                  maxHeight: "120px",
-                  overflow: "auto",
-                }}
-              />
+              {!editingDescription ? (
+                <textarea
+                  className="w-full px-0 py-1 bg-transparent border-none outline-none resize-none text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 text-[16px] font-normal"
+                  placeholder="Add a description..."
+                  rows={1}
+                  value={displayData?.description || ""}
+                  readOnly
+                  style={{
+                    minHeight: "28px",
+                    maxHeight: "120px",
+                    overflow: "auto",
+                  }}
+                  onClick={handleEditDescription}
+                />
+              ) : (
+                <>
+                  <textarea
+                    className="w-full px-0 py-1 bg-transparent border border-gray-300 dark:border-gray-700 outline-none resize-none text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 text-[16px] font-normal"
+                    placeholder="Add a description..."
+                    rows={3}
+                    value={descriptionDraft}
+                    onChange={handleDescriptionChange}
+                    style={{
+                      minHeight: "48px",
+                      maxHeight: "120px",
+                      overflow: "auto",
+                    }}
+                    autoFocus
+                  />
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      className="px-3 py-1 rounded bg-blue-600 text-white text-sm font-medium"
+                      onClick={handleSaveEditDescription}
+                      type="button"
+                    >
+                      Save
+                    </button>
+                    <button
+                      className="px-3 py-1 rounded bg-gray-300 text-gray-700 text-sm font-medium"
+                      onClick={handleCancelEditDescription}
+                      type="button"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
-            {/* Description below line */}
-            <div className="w-full h-px bg-gray-200 dark:bg-gray-700 my-2"></div>
-            {/* Attachments section below description */}
-            {localTask?.attachments?.length > 0 && (
+            {/* Attachments section */}
+            {displayData?.attachments?.length > 0 && (
               <div className="mb-3">
                 {/* Delete all and individual delete options */}
                 <div className="flex items-center mb-2 justify-between">
@@ -504,38 +927,45 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
                       Attachments
                     </span>
                     <span className="inline-block text-xs bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200 rounded px-2 py-0.5 font-semibold">
-                      {localTask.attachments.length}
+                      {displayData.attachments.length}
                     </span>
                   </div>
-                  <div className="flex gap-2">
+                  {/* <div className="flex gap-2">
                     <button
                       className="text-xs px-2 py-1 rounded bg-black text-white hover:bg-gray-800 font-semibold transition"
                       onClick={() => {
                         if (localTask?._id && columnId)
-                          setTaskAttachments(localTask?._id, columnId, []);
+                          setTaskAttachments(localTask._id, columnId, []);
                       }}
                       type="button"
                     >
                       Delete All
                     </button>
-                  </div>
+                  </div> */}
                 </div>
                 <div className="flex flex-wrap gap-3">
-                  {localTask.attachments.map((file, idx) => (
+                  {displayData.attachments.map((file, idx) => (
                     <div
                       key={idx}
-                      className="w-56 bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 overflow-hidden relative"
+                      className="w-full sm:w-56 p-2 bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 overflow-hidden relative"
+                      style={{ maxWidth: 224, minWidth: 0, flex: "1 1 160px" }}
                     >
                       {/* Delete single attachment button */}
                       <button
                         className="absolute top-1 right-1 z-10 bg-black text-white hover:bg-gray-800 rounded-full w-6 h-6 flex items-center justify-center text-xs transition"
                         title="Delete"
                         onClick={() => {
-                          if (localTask?._id && columnId) {
+                          if (localTask?._id) {
+                            // Remove from UI immediately
+                            setLocalTask((prevTask) => ({
+                              ...prevTask,
+                              attachments: prevTask.attachments.filter((_, i) => i !== idx),
+                            }));
+                            // Update backend/store
                             const newAttachments = [...localTask.attachments];
                             newAttachments.splice(idx, 1);
                             setTaskAttachments(
-                              localTask?._id,
+                              localTask._id,
                               columnId,
                               newAttachments
                             );
@@ -545,23 +975,29 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
                       >
                         &times;
                       </button>
-                      {/* Preview image if available */}
-                      {file.preview ? (
-                        <img
-                          src={file.preview}
-                          alt={file.name || file}
-                          className="w-full h-28 object-cover bg-gray-100"
-                        />
-                      ) : (
-                        <div className="w-full h-28 flex items-center justify-center bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs">
-                          <FaPaperclip className="text-2xl" />
+                      {/* Only show title, download link, and date */}
+                      <div className="font-semibold text-sm text-gray-900 dark:text-gray-100 truncate">
+                          {
+                            typeof file === "string"
+                              ? (
+                                  file.includes("\\") || file.includes("/")
+                                    ? file.split(/[/\\]/).pop()
+                                    : file
+                                )
+                              : file.name || "Attachment"
+                          }
                         </div>
-                      )}
-                      <div className="p-2">
-                        <div className="font-semibold text-sm text-gray-900 dark:text-gray-100 truncate">
-                          {file.name ||
-                            (typeof file === "string" ? file : "Attachment")}
-                        </div>
+                        {/* Optionally, show download link if file is a string */}
+                        {typeof file === "string" && (
+                          <a
+                            href={`/${file.replace(/\\/g, "/")}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-blue-600 underline mt-1"
+                          >
+                            Download
+                          </a>
+                        )}
                         <div className="text-xs text-gray-500 dark:text-gray-400">
                           {file.lastModified
                             ? new Date(file.lastModified).toLocaleString(
@@ -574,10 +1010,12 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
                                   minute: "2-digit",
                                 }
                               )
+                            : typeof file === "string"
+                            ? ""
                             : "Just now"}
                         </div>
                       </div>
-                    </div>
+                    
                   ))}
                 </div>
               </div>
@@ -586,7 +1024,7 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
 
           {/* Subtasks Section */}
           <div className="mb-6">
-            {Array.isArray(localTask?.subtasks) && localTask.subtasks.length > 0 && (
+            {!isSubTask && Array.isArray(localTask?.subtasks) && localTask.subtasks.length > 0 && (
               <>
                 <div className="font-semibold text-base mb-2 text-gray-900 dark:text-gray-100 flex justify-between mx-2 items-center gap-2">
                   Subtasks
@@ -598,49 +1036,99 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
                     <FaPlus /> Add
                   </button>
                 </div>
-                {/* Subtasks Table */}
-                <div className="overflow-x-auto mb-2 px-2">
-                  <table className="min-w-[400px] w-full border border-gray-200 dark:border-gray-700 rounded text-xs">
-                    <thead>
-                      <tr className="bg-gray-100 dark:bg-gray-800">
-                        <th className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 text-left font-semibold">Task ID</th>
-                        <th className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 text-left font-semibold">Title</th>
-                        <th className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 text-left font-semibold">Status</th>
-                        <th className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 text-left font-semibold">Priority</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {localTask.subtasks.map((sub) => (
-                        <tr key={sub._id || sub.id}>
-                          <td className="px-3 py-2 border-b border-gray-100 dark:border-gray-800">{sub.taskId}</td>
-                          <td className="px-3 py-2 border-b border-gray-100 dark:border-gray-800">{sub.title}</td>
-                          <td className="px-3 py-2 border-b border-gray-100 dark:border-gray-800">
-                            <span className="inline-block px-2 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs">
-                              {sub.status}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 border-b border-gray-100 dark:border-gray-800">
-                            <span className={`inline-block px-2 py-0.5 rounded font-semibold text-xs ${
-                              sub.priority === "High"
-                                ? "bg-red-100 text-red-600 border border-red-200"
-                                : sub.priority === "Medium"
-                                ? "bg-yellow-100 text-yellow-700 border border-yellow-200"
-                                : sub.priority === "Low"
-                                ? "bg-cyan-100 text-cyan-700 border border-cyan-200"
-                                : ""
-                            }`}>
-                              {sub.priority}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                {/* Editable AntD Table */}
+                <div className="overflow-x-auto mb-2 px-0 sm:px-2">
+                  <Form form={form} component={false}>
+                    <Table
+                      dataSource={localTask.subtasks.map((sub, idx) => ({
+                        ...sub,
+                        key: sub._id || sub.id || idx,
+                      }))}
+                      columns={subtaskColumns.map((col) =>
+                        col.key === "title"
+                          ? {
+                              ...col,
+                              render: (text, record) =>
+                                isEditing(record) ? (
+                                  <Form.Item
+                                    name="title"
+                                    style={{ margin: 0 }}
+                                    rules={[{ required: true, message: "Title is required." }]}
+                                  >
+                                    <Input size="small" />
+                                  </Form.Item>
+                                ) : (
+                                  <span
+                                    className="text-blue-600 underline cursor-pointer"
+                                    onClick={() => handleSubtaskTitleClick(record)}
+                                  >
+                                    {text}
+                                  </span>
+                                ),
+                            }
+                          : col
+                      )}
+                      pagination={false}
+                      rowClassName={(_, idx) =>
+                        // Only apply hover:bg-gray-100 in light mode
+                        `editable-row ${
+                          idx % 2 === 0
+                            ? "bg-white dark:bg-gray-900"
+                            : "bg-gray-50 dark:bg-gray-800"
+                        } hover:bg-gray-100 dark:hover:bg-inherit`
+                      }
+                      components={{
+                        header: {
+                          cell: (props) => (
+                            <th
+                              {...props}
+                              className={
+                                (props.className || "") +
+                                " bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-white"
+                              }
+                              style={{
+                                ...props.style,
+                                backgroundColor: undefined,
+                                color: undefined,
+                              }}
+                            >
+                              {props.children}
+                            </th>
+                          ),
+                        },
+                        body: {
+                          row: (props) => (
+                            <tr
+                              {...props}
+                              className={props.className || ""}
+                            >
+                              {props.children}
+                            </tr>
+                          ),
+                          cell: ({ children, ...restProps }) => (
+                            <td
+                              {...restProps}
+                              className={
+                                (restProps.className || "") +
+                                " dark:text-white"
+                              }
+                            >
+                              {children}
+                            </td>
+                          ),
+                        },
+                      }}
+                      size="small"
+                      bordered
+                      className="min-w-[400px] w-full border border-gray-200 dark:border-gray-600 rounded text-xs"
+                      scroll={{ x: 600 }}
+                    />
+                  </Form>
                 </div>
               </>
             )}
             {/* Add Subtask Input */}
-            {showSubtaskInput && (
+            {!isSubTask && showSubtaskInput && (
               <div className="flex gap-2 mb-2 mt-2 mx-2">
                 <input
                   type="text"
@@ -742,7 +1230,7 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
               {["Comments", "History", "Work log"].map((tab) => (
                 <button
                   key={tab}
-                  className={`px-3 py-1 rounded text-base ${
+                  className={`px-3 py-1 rounded text-[12px] lg:text-base ${
                     activityTab === tab
                       ? "bg-blue-100 dark:bg-gray-700 text-blue-700 dark:text-white font-semibold"
                       : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
@@ -756,7 +1244,7 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
             </div>
             <div
               className="bg-gray-100 dark:bg-gray-800 rounded p-2 max-h-32 overflow-y-auto text-xs text-gray-700 dark:text-gray-300"
-              style={{ minHeight: "128px" }}
+              style={{ minHeight: "128px", maxHeight: "30vh", overflowY: "auto" }}
             >
               {activityTab === "Comments" && (
                 <div style={{ minHeight: "100%" }}>
@@ -802,7 +1290,7 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
                   )}
                   {taskComments.map((c) => (
                     <div
-                      key={c.id}
+                      key={c._id}
                       className="flex items-start gap-2 mb-2 group"
                     >
                       <div className="w-7 h-7 rounded-full bg-orange-700 flex items-center justify-center text-white font-bold">
@@ -829,7 +1317,7 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
                             </span>
                           )}
                         </div>
-                        {editingCommentId === c.id ? (
+                        {editingCommentId === c._id ? (
                           <div className="flex gap-2 mt-1">
                             <textarea
                               className="w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-xs text-gray-900 dark:text-gray-100 focus:outline-none"
@@ -842,7 +1330,7 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
                             />
                             <button
                               className="px-2 py-0.5 rounded bg-blue-600 text-white text-xs"
-                              onClick={() => handleSaveEditComment(c.id)}
+                              onClick={() => handleSaveEditComment(c._id)}
                             >
                               Save
                             </button>
@@ -861,13 +1349,13 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
                         <div className="flex gap-2 mt-1 opacity-0 group-hover:opacity-100 transition">
                           <button
                             className="text-xs text-blue-600"
-                            onClick={() => handleEditComment(c.id, c.text)}
+                            onClick={() => handleEditComment(c._id, c.text)}
                           >
                             Edit
                           </button>
                           <button
                             className="text-xs text-red-600"
-                            onClick={() => handleDeleteComment(c.id)}
+                            onClick={() => handleDeleteComment(c._id)}
                           >
                             Delete
                           </button>
@@ -879,38 +1367,42 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
               )}
               {activityTab === "History" && (
                 <div style={{ minHeight: "100%" }}>
-                  {history.length === 0 ? (
+                  {(!localTask?.history || localTask.history.length === 0) ? (
                     <div className="flex items-center justify-center h-full text-gray-400 dark:text-gray-500">
                       No history yet.
                     </div>
                   ) : (
-                    history.map((h, idx) => (
-                      <div key={idx} className="mb-2 flex items-start gap-2">
-                        <div className="w-7 h-7 rounded-full bg-orange-700 flex items-center justify-center text-white font-bold">
-                          {h.user[0].toUpperCase()}
-                        </div>
-                        <div>
-                          <span className="font-semibold text-gray-900 dark:text-gray-100">
-                            {h.user}
-                          </span>{" "}
-                          {h.text}
-                          <div className="flex gap-2 mt-1">
-                            <span className="inline-block px-2 py-0.5 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-xs font-mono">
-                              {h.from}
+                    localTask.history.map((h, idx) => {
+                      // Only show the part before the first ';' (inclusive)
+                      let details = h.details || "";
+                      const semiIdx = details.indexOf(";");
+                      if (semiIdx !== -1) {
+                        details = details.slice(0, semiIdx + 1);
+                      }
+                      return (
+                        <div key={idx} className="mb-2 flex items-start gap-2">
+                          {/* Remove avatar initial if you want only text, else keep */}
+                          {/* <div className="w-7 h-7 rounded-full bg-orange-700 flex items-center justify-center text-white font-bold">
+                            {h.user && (h.user.name
+                              ? h.user.name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0,2)
+                              : typeof h.user === "string"
+                                ? h.user.split(" ").map(w => w[0]).join("").toUpperCase().slice(0,2)
+                                : "?")}
+                          </div> */}
+                          <div>
+                            <span className="font-semibold text-gray-900 dark:text-gray-100">
+                              {h.user && (h.user.name ? h.user.name : h.user)}
                             </span>
-                            <span className="text-gray-400 dark:text-gray-500">
-                              →
+                            <span className="ml-2 font-normal text-gray-700 dark:text-gray-300">
+                              {h.action ? ` ${h.action}:` : ""} {details}
                             </span>
-                            <span className="inline-block px-2 py-0.5 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-xs font-mono">
-                              {h.to}
-                            </span>
+                            <div className="text-gray-400 dark:text-gray-500 text-xs mt-1">
+                              {h.timestamp && new Date(h.timestamp).toLocaleString()}
+                            </div>
                           </div>
-                          <div className="text-gray-400 dark:text-gray-500">
-                            {h.time}
-                          </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               )}
@@ -944,7 +1436,14 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
           </div>
         </div>
         {/* Right Column */}
-        <div className="w-full md:w-80 flex-shrink-0 flex flex-col">
+        <div
+          className="w-full md:w-80 flex-shrink-0 flex flex-col mt-6 md:mt-0"
+          style={{
+            maxWidth: "100%",
+            minWidth: 0,
+            overflow: "visible",
+          }}
+        >
           <div className="font-semibold text-base mb-3 text-gray-900 dark:text-gray-100">
             Details
           </div>
@@ -953,8 +1452,11 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
             <span className="w-24 text-gray-700 dark:text-gray-300">
               Assignee
             </span>
-            <span className="flex-1 text-gray-900 dark:text-gray-100">
-              roshan devadiga
+            <span className="flex-1 text-gray-900 dark:text-gray-100 min-w-0">
+              <div className="w-full">
+                {/* You may want to use displayData.assignee if available */}
+                roshan devadiga
+              </div>
             </span>
           </div>
           {/* Priority */}
@@ -962,16 +1464,16 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
             <span className="w-24 text-gray-700 dark:text-gray-300">
               Priority
             </span>
-            <div className={styles.antdDropdownFix} style={{ width: "100%" }}>
+            <div className={`${styles.antdDropdownFix} flex-1 min-w-0`} style={{ width: "100%" }}>
               <Select
-                value={localTask?.priority || "High"}
+                value={displayData?.priority || "High"}
+                onChange={handlePriorityChange}
                 style={{
                   width: "100%",
                   height: 32,
                   fontSize: 14,
                   borderRadius: 6,
                 }}
-                onChange={handlePriorityChange}
                 dropdownClassName={styles.antdDropdownFix}
                 options={priorities.map((p) => ({
                   value: p,
@@ -987,7 +1489,6 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
                             : p === "Low"
                             ? "#0e7490"
                             : undefined,
-                        // No background color for selected or options
                         borderRadius: 4,
                         display: "inline-flex",
                         width: "100%",
@@ -1008,62 +1509,19 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
             <span className="w-24 text-gray-700 dark:text-gray-300">
               Estimate
             </span>
-            <input
-              type="time"
-              step="60"
-              className="flex-1 px-2 py-1 rounded bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-gray-100"
-              placeholder="2h 30m"
-              value={localTask?.estimate || ""}
-              onChange={handleEstimateChange}
-            />
-          </div>
-          {/* Subtasks Section */}
-          {/* {localTask && (
-            <div className="mb-6">
-              <div className="font-semibold text-base mb-1 text-gray-900 dark:text-gray-100">
-                Subtasks
-              </div>
-              <div className="flex gap-2 mb-2">
-                <input
-                  type="text"
-                  className="flex-1 px-2 py-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
-                  placeholder="Add a subtask..."
-                  value={newSubtask}
-                  onChange={(e) => setNewSubtask(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      handleAddSubtask();
-                    }
-                  }}
-                />
-                <button
-                  className="px-3 py-1 rounded bg-blue-600 text-white text-sm font-medium"
-                  onClick={handleAddSubtask}
-                >
-                  Add
-                </button>
-              </div>
-              <ul className="space-y-1">
-                {(localTask.subtasks || []).map((sub, idx) => (
-                  <li key={sub.id || idx} className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={!!sub.done}
-                      onChange={() => {
-                        // Toggle done state for subtask
-                        const updated = [...(localTask.subtasks || [])];
-                        updated[idx] = { ...sub, done: !sub.done };
-                        setTaskSubtasks(localTask?._id, columnId, updated);
-                      }}
-                    />
-                    <span className={sub.done ? "line-through text-gray-400" : ""}>
-                      {sub.title}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+            <div className="flex-1 min-w-0">
+              <DatePicker
+                className="w-full"
+                style={{ width: "100%" }}
+                value={displayData?.estimate ? moment(displayData.estimate) : null}
+                onChange={handleEstimateChange}
+                format="YYYY-MM-DD"
+                allowClear
+                placeholder="Select date"
+                size="middle"
+              />
             </div>
-          )} */}
+          </div>
           {/* ...existing code for more details fields if needed... */}
         </div>
       </div>
@@ -1072,4 +1530,3 @@ const TaskDetailModal = ({ isOpen, onClose, task, mode, taskId, taskType }) => {
 };
 
 export default TaskDetailModal;
-

@@ -1,12 +1,20 @@
 import React from "react";
 import { useAuth } from "../../App";
 import ThemeToggle from "./ThemeToggle";
+import { logout as logoutApi } from '../../api/authRequest';
+
 
 const Header = ({ onSidebarOpen }) => {
   const { isAuthenticated, logout } = useAuth();
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     localStorage.removeItem("token");
+    // Call backend logout API
+    try {
+      await logoutApi();
+    } catch (e) {
+      // Optionally handle error
+    }
     logout();
   };
 

@@ -17,3 +17,10 @@ export const login = async (data) => {
   });
   return response.data;
 };
+
+export const logout = async () => {
+  const response = await axios.post(`${API_BASE_URL}/logout`, {}, {
+    withCredentials: true,
+  });
+  return response.data;
+};

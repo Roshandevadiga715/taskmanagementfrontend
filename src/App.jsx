@@ -1,10 +1,18 @@
-import React, { useState, createContext, useContext } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
-import Login from './components/Auth/Login';
-import Signup from './components/Auth/Signup';
+import React, { useState, createContext, useContext } from "react";
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+  useLocation,
+  Outlet,
+} from "react-router-dom";
+import Login from "./components/Auth/Login";
+import Signup from "./components/Auth/Signup";
 
-import './App.css';
-import KanbanViewPage from './pages/KanbanViewPage';
+import "./App.css";
+import KanbanViewPage from "./pages/KanbanViewPage";
+import TaskHistoryPage from "./pages/TaskHistoryPage";
 
 // Auth context and hooks
 const AuthContext = createContext();
@@ -22,17 +30,17 @@ const ProtectedRoute = () => {
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(
-    !!localStorage.getItem('isAuthenticated')
+    !!localStorage.getItem("isAuthenticated")
   );
 
   const login = () => {
     setIsAuthenticated(true);
-    localStorage.setItem('isAuthenticated', 'true');
+    localStorage.setItem("isAuthenticated", "true");
   };
 
   const logout = () => {
     setIsAuthenticated(false);
-    localStorage.removeItem('isAuthenticated');
+    localStorage.removeItem("isAuthenticated");
   };
 
   return (
@@ -47,6 +55,7 @@ function App() {
             {/* Protected routes */}
             <Route element={<ProtectedRoute />}>
               <Route path="/" element={<KanbanViewPage />} />
+              <Route path="/taskhistory" element={<TaskHistoryPage />} />
             </Route>
           </Routes>
         </Router>
@@ -56,4 +65,3 @@ function App() {
 }
 
 export default App;
-

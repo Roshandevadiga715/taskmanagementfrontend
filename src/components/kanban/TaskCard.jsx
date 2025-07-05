@@ -16,9 +16,9 @@ const TaskCard = ({
   title,
   priority,
   estimate,
+  assignee, // now expected to be the username string (user.name)
+  createdAt, // now expected to be the createdAt date string
   onClick,
-  assignee,
-  dueDate,
   onTitleEdit, // callback for title edit
   showEdit = true,
   status,
@@ -27,8 +27,13 @@ const TaskCard = ({
   const [editTitle, setEditTitle] = useState(title || "Untitled");
   const inputRef = useRef(null);
 
-  const user = assignee || "Roshan";
-  const date = dueDate || "30-06-2024";
+  // Use assignee as username, fallback to "Unknown"
+  const user = assignee || "Unknown";
+  // Use createdAt date, fallback to empty string
+  const date = createdAt
+    ? new Date(createdAt).toLocaleDateString()
+    : "";
+
   const avatar = user ? user[0].toUpperCase() : "?";
   const statusOptions = useKanbanStore((s) => s.statusOptions);
   const updateTaskStatus = useKanbanStore((s) => s.updateTaskStatus);
@@ -145,7 +150,7 @@ const TaskCard = ({
             {user}
           </span>
         </div>
-        {/* Due date */}
+        {/* Created at date */}
         <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
           <svg
             className="w-4 h-4 text-gray-400 dark:text-gray-500"
@@ -165,4 +170,4 @@ const TaskCard = ({
 };
 
 export default TaskCard;
-     
+

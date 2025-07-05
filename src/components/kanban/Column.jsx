@@ -19,6 +19,7 @@ const Column = ({ title, columnId, onCardClick }) => {
   const inputRef = useRef(null);
 
   useEffect(() => {
+    console.log("tasks:", tasks);
     if (creating && inputRef.current) {
       inputRef.current.focus();
     }
@@ -116,8 +117,8 @@ const Column = ({ title, columnId, onCardClick }) => {
                   title={task.title}
                   priority={task.priority}
                   estimate={task.estimate}
-                  assignee={task.assignee}
-                  dueDate={task.dueDate}
+                  assignee={task.user?.name}
+                  createdAt={task.createdAt}
                   onClick={() => onCardClick && onCardClick(task)}
                   onTitleEdit={(newTitle) =>
                     editTaskTitle(task.id, columnId, newTitle)

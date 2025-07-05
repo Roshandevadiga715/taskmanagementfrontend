@@ -1,0 +1,11 @@
+
+.dark .custom-task-modal .ant-modal-content {
+  background-color: #1e293b !important; /* Tailwind's bg-gray-800 */
+}
+
+.dark .custom-task-modal .ant-modal-close-x,
+.dark .custom-task-modal .ant-modal-close {
+  color: #fff !important;
+  fill: #fff !important;
+}
+

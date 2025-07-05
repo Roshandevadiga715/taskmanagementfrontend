@@ -82,3 +82,22 @@
 .antdDropdownFix :global(.ant-btn:hover) {
   background: #1d4ed8 !important;
 }
+
+.modalParent {
+  background: #fff;
+  transition: background 0.2s;
+}
+:global(.dark) .custom-task-modal .modalParent {
+  background: #1f2937 !important; /* Tailwind's bg-gray-800 */
+}
+
+.darkAntdTable .ant-table,
+.darkAntdTable .ant-table-thead > tr > th,
+.darkAntdTable .ant-table-tbody > tr > td {
+  background-color: #18181b !important;
+  color: #f3f4f6 !important;
+  border-color: #374151 !important;
+}
+.darkAntdTable .ant-table-thead > tr > th {
+  background-color: #27272a !important;
+}

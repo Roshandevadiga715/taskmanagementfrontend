@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { createTask as apiCreateTask, getAllTasks, updateTask } from "../api/taskRequest"; // <-- Add updateTask import
+import { createTask as apiCreateTask, getAllTasks, updateTask, getTaskById } from "../api/taskRequest"; // <-- Add updateTask import
 
 export const modalStatusOptions = [
   { value: "backlog", label: "Backlog", color: "bg-gray-200 text-gray-700" },
@@ -287,21 +287,62 @@ export const useKanbanStore = create((set, get) => ({
 
   setTaskSubtasks: (taskId, columnId, newSubtasks) =>
     set((state) => {
-      const colTasks = state.tasks[columnId]?.map((t) =>
-        t.id === taskId ? { ...t, subtasks: newSubtasks } : t
-      );
-      if (!colTasks) return state; // Return current state if column doesn't exist
-      
-      // Optimistically update state, then call API
-      setTimeout(() => {
-        const updatedTask = colTasks.find((task) => task.id === taskId);
-        if (updatedTask) updateTask(taskId, { ...updatedTask, taskType: updatedTask.taskType || "task" }).catch(() => {});
-      }, 0);
-      
-      return { 
-        ...state, // Preserve other state
-        tasks: { ...state.tasks, [columnId]: colTasks } 
-      };
+      // Try to find as parent task first
+      let parentCol = null;
+      let parentIdx = -1;
+      let parentTask = null;
+      for (const col in state.tasks) {
+        const idx = state.tasks[col].findIndex(
+          (t) => t.id === taskId || t._id === taskId
+        );
+        if (idx !== -1) {
+          parentCol = col;
+          parentIdx = idx;
+          parentTask = state.tasks[col][idx];
+          break;
+        }
+      }
+      // If found as parent, update its subtasks (normal case)
+      if (parentTask) {
+        const colTasks = state.tasks[parentCol].map((t, idx) =>
+          idx === parentIdx ? { ...t, subtasks: newSubtasks } : t
+        );
+        setTimeout(() => {
+          const updatedTask = colTasks[parentIdx];
+          if (updatedTask) updateTask(updatedTask.id, { ...updatedTask, taskType: updatedTask.taskType || "task" }).catch(() => {});
+        }, 0);
+        return {
+          ...state,
+          tasks: { ...state.tasks, [parentCol]: colTasks },
+        };
+      }
+      // If not found as parent, try to find as subtask
+      for (const col in state.tasks) {
+        for (let i = 0; i < state.tasks[col].length; i++) {
+          const parent = state.tasks[col][i];
+          const subIdx = (parent.subtasks || []).findIndex(
+            (sub) => sub.id === taskId || sub._id === taskId
+          );
+          if (subIdx !== -1) {
+            // Replace only the subtask at subIdx with newSubtasks[0] (the updated subtask)
+            const updatedSubtasks = [...(parent.subtasks || [])];
+            updatedSubtasks[subIdx] = { ...updatedSubtasks[subIdx], ...newSubtasks[0] };
+            const updatedParent = { ...parent, subtasks: updatedSubtasks };
+            const colTasks = [...state.tasks[col]];
+            colTasks[i] = updatedParent;
+            setTimeout(() => {
+              const subtask = updatedSubtasks[subIdx];
+              if (subtask) updateTask(subtask.id || subtask._id, { ...subtask, taskType: "subtask" }).catch(() => {});
+            }, 0);
+            return {
+              ...state,
+              tasks: { ...state.tasks, [col]: colTasks },
+            };
+          }
+        }
+      }
+      // If not found, do nothing
+      return state;
     }),
 
   getTaskById: (taskId) => {
@@ -352,9 +393,76 @@ export const useKanbanStore = create((set, get) => ({
       taskDataId: taskData.taskDataId || taskData.taskdataId,
     };
     const tempId = `temp-${Date.now()}`;
-    const optimisticTask = { ...payload, id: tempId };
+    // --- SUBTASK LOGIC ---
+    if (isSubtask) {
+      // Find parent task in all columns
+      const parentId = payload.taskDataId;
+      let parentCol = null;
+      let parentIdx = -1;
+      let parentTask = null;
+      const tasks = get().tasks;
+      for (const col in tasks) {
+        const idx = tasks[col].findIndex(
+          (t) => t.id === parentId || t._id === parentId
+        );
+        if (idx !== -1) {
+          parentCol = col;
+          parentIdx = idx;
+          parentTask = tasks[col][idx];
+          break;
+        }
+      }
+      if (!parentTask) throw new Error("Parent task not found in store");
 
-    // Optimistically update tasks in the correct column
+      // Optimistically add subtask to parent
+      const optimisticSubtask = { ...payload, id: tempId };
+      set((state) => {
+        const newTasks = { ...state.tasks };
+        const parent = { ...parentTask };
+        parent.subtasks = [...(parent.subtasks || []), optimisticSubtask];
+        newTasks[parentCol] = [
+          ...newTasks[parentCol].slice(0, parentIdx),
+          parent,
+          ...newTasks[parentCol].slice(parentIdx + 1),
+        ];
+        return { tasks: newTasks };
+      });
+
+      try {
+        const createdTask = await apiCreateTask(payload);
+        // Replace temp subtask with real subtask in parent
+        set((state) => {
+          const newTasks = { ...state.tasks };
+          const parent = { ...parentTask };
+          parent.subtasks = (parent.subtasks || []).map((t) =>
+            t.id === tempId ? { ...createdTask, id: createdTask._id || createdTask.id } : t
+          );
+          newTasks[parentCol] = [
+            ...newTasks[parentCol].slice(0, parentIdx),
+            parent,
+            ...newTasks[parentCol].slice(parentIdx + 1),
+          ];
+          return { tasks: newTasks };
+        });
+        return createdTask;
+      } catch (error) {
+        // Remove temp subtask on error
+        set((state) => {
+          const newTasks = { ...state.tasks };
+          const parent = { ...parentTask };
+          parent.subtasks = (parent.subtasks || []).filter((t) => t.id !== tempId);
+          newTasks[parentCol] = [
+            ...newTasks[parentCol].slice(0, parentIdx),
+            parent,
+            ...newTasks[parentCol].slice(parentIdx + 1),
+          ];
+          return { tasks: newTasks };
+        });
+        throw error;
+      }
+    }
+    // --- MAIN TASK LOGIC ---
+    const optimisticTask = { ...payload, id: tempId };
     set((state) => ({
       tasks: {
         ...state.tasks,
@@ -364,7 +472,6 @@ export const useKanbanStore = create((set, get) => ({
 
     try {
       const createdTask = await apiCreateTask(payload);
-      // Replace temp task with real task from API
       set((state) => ({
         tasks: {
           ...state.tasks,
@@ -375,7 +482,6 @@ export const useKanbanStore = create((set, get) => ({
       }));
       return createdTask;
     } catch (error) {
-      // On error, remove the optimistically added task
       set((state) => ({
         tasks: {
           ...state.tasks,
@@ -386,47 +492,147 @@ export const useKanbanStore = create((set, get) => ({
     }
   },
 
-  addComment: (taskId, text, user = "User") =>
+  addComment: async (taskId, text, user = "User") => {
+    // Find the task in the store
+    let updatedTaskObj = null;
+    let colName = null;
+    let idx = -1;
+    const state = get();
+    for (const col in state.tasks) {
+      idx = state.tasks[col].findIndex((t) => t.id === taskId || t._id === taskId);
+      if (idx !== -1) {
+        updatedTaskObj = { ...state.tasks[col][idx] };
+        colName = col;
+        break;
+      }
+    }
+    if (!updatedTaskObj) return;
+
+    // Prepare updated comments array (without fake _id)
+    const newComment = {
+      text,
+      user,
+      timestamp: getNowISO(),
+    };
+    const updatedComments = [...(updatedTaskObj.comments || []), newComment];
+
+    // Optimistically update UI (without _id)
     set((state) => {
-      const prev = state.comments[taskId] || [];
-      const newComment = {
-        id: Date.now().toString(),
-        text,
-        user,
-        timestamp: getNowISO(),
-      };
+      const updatedTasks = { ...state.tasks };
+      const updatedTask = { ...updatedTaskObj, comments: updatedComments };
+      updatedTasks[colName][idx] = updatedTask;
       return {
-        ...state, // Preserve other state
+        ...state,
         comments: {
           ...state.comments,
-          [taskId]: [...prev, newComment],
+          [taskId]: updatedComments,
         },
+        tasks: updatedTasks,
       };
-    }),
+    });
+
+    // Call backend to update task (or add comment)
+    try {
+      await updateTask(taskId, { ...updatedTaskObj, comments: updatedComments, taskType: updatedTaskObj.taskType || "task" });
+      // Fetch the latest task from backend to get real comments with real _id
+      const latest = await getTaskById(taskId, updatedTaskObj.taskType || "task");
+      const realComments = latest.comments || [];
+      set((state) => {
+        const updatedTasks = { ...state.tasks };
+        if (colName !== null && idx !== -1) {
+          updatedTasks[colName][idx] = { ...updatedTaskObj, comments: realComments };
+        }
+        return {
+          ...state,
+          comments: {
+            ...state.comments,
+            [taskId]: realComments,
+          },
+          tasks: updatedTasks,
+        };
+      });
+    } catch (e) {
+      // Optionally: revert optimistic update or show error
+    }
+  },
 
   editComment: (taskId, commentId, newText) =>
     set((state) => {
       const prev = state.comments[taskId] || [];
+      // Only update text and edited, never touch _id
+      const updatedComments = prev.map((c) =>
+        c._id === commentId
+          ? { ...c, text: newText, edited: true } // _id is preserved
+          : c
+      );
+
+      // Update the task's comments array and hit updateTask API
+      let updatedTasks = { ...state.tasks };
+      let updatedTaskObj = null;
+      for (const col in updatedTasks) {
+        const idx = updatedTasks[col].findIndex((t) => t.id === taskId || t._id === taskId);
+        if (idx !== -1) {
+          updatedTaskObj = { ...updatedTasks[col][idx] };
+          updatedTaskObj.comments = updatedComments;
+          updatedTasks[col] = [
+            ...updatedTasks[col].slice(0, idx),
+            updatedTaskObj,
+            ...updatedTasks[col].slice(idx + 1),
+          ];
+          break;
+        }
+      }
+      if (updatedTaskObj) {
+        setTimeout(() => {
+          updateTask(taskId, { ...updatedTaskObj, taskType: updatedTaskObj.taskType || "task" }).catch(() => {});
+        }, 0);
+      }
+
       return {
-        ...state, // Preserve other state
+        ...state,
         comments: {
           ...state.comments,
-          [taskId]: prev.map((c) =>
-            c.id === commentId ? { ...c, text: newText, edited: true } : c
-          ),
+          [taskId]: updatedComments,
         },
+        tasks: updatedTasks,
       };
     }),
 
   deleteComment: (taskId, commentId) =>
     set((state) => {
       const prev = state.comments[taskId] || [];
+      // Only match and delete by _id, do not touch _id of others
+      const updatedComments = prev.filter((c) => c._id !== commentId);
+
+      // Update the task's comments array and hit updateTask API
+      let updatedTasks = { ...state.tasks };
+      let updatedTaskObj = null;
+      for (const col in updatedTasks) {
+        const idx = updatedTasks[col].findIndex((t) => t.id === taskId || t._id === taskId);
+        if (idx !== -1) {
+          updatedTaskObj = { ...updatedTasks[col][idx] };
+          updatedTaskObj.comments = updatedComments;
+          updatedTasks[col] = [
+            ...updatedTasks[col].slice(0, idx),
+            updatedTaskObj,
+            ...updatedTasks[col].slice(idx + 1),
+          ];
+          break;
+        }
+      }
+      if (updatedTaskObj) {
+        setTimeout(() => {
+          updateTask(taskId, { ...updatedTaskObj, taskType: updatedTaskObj.taskType || "task" }).catch(() => {});
+        }, 0);
+      }
+
       return {
-        ...state, // Preserve other state
+        ...state,
         comments: {
           ...state.comments,
-          [taskId]: prev.filter((c) => c.id !== commentId),
+          [taskId]: updatedComments,
         },
+        tasks: updatedTasks,
       };
     }),
 
@@ -438,6 +644,8 @@ export const useKanbanStore = create((set, get) => ({
       columnsList.forEach((col) => {
         tasksByColumn[col.id] = [];
       });
+      // --- Collect comments for each task into the comments store ---
+      const commentsByTask = {};
       data.forEach((task) => {
         let col = (task.status || "").toLowerCase().replace(/\s/g, "");
         if (!columnsList.some((c) => c.id === col)) {
@@ -447,8 +655,12 @@ export const useKanbanStore = create((set, get) => ({
           ...task,
           id: task._id || task.id,
         });
+        // If task has comments array, store it in comments store
+        if (Array.isArray(task.comments) && (task._id || task.id)) {
+          commentsByTask[task._id || task.id] = task.comments;
+        }
       });
-      set({ tasks: tasksByColumn });
+      set({ tasks: tasksByColumn, comments: commentsByTask });
     } catch (error) {
       // On error, initialize with empty columns
       const columnsList = get().columns;
@@ -456,7 +668,7 @@ export const useKanbanStore = create((set, get) => ({
       columnsList.forEach((col) => {
         emptyTasks[col.id] = [];
       });
-      set({ tasks: emptyTasks });
+      set({ tasks: emptyTasks, comments: {} });
       throw error;
     }
   },
